@@ -3,7 +3,7 @@ import numpy as np
 import random
 import scipy.sparse as sp
 from datasets import DataLoader
-from models import ELSA
+from models import ELSA, SAE, ELSAWithSAE
 import os
 
 class Utils:
@@ -77,7 +77,7 @@ class Utils:
         return torch.cat(ndcg).detach().cpu().numpy()
     
     @staticmethod
-    def evaluate(model: ELSA, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device) -> dict[str, float]:
+    def evaluate_dense_encoder(model: ELSA, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device) -> dict[str, float]:
         inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio)
         inputs = DataLoader(inputs, batch_size, device, shuffle=False)
         targets = DataLoader(targets, batch_size, device, shuffle=False)
@@ -87,6 +87,71 @@ class Utils:
             'R20': float(np.mean(recalls)),
             'NDCG20': float(np.mean(ndcgs))
         }
+        
+    @staticmethod
+    def evaluate_sparse_encoder(base_model:ELSA, sae_model:SAE, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device) -> dict[str, float]:
+        inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio)
+        inputs = DataLoader(inputs, batch_size, device, shuffle=False)
+        targets = DataLoader(targets, batch_size, device, shuffle=False)
+        
+        fused_model = ELSAWithSAE(base_model, sae_model)
+        
+        base_model.eval()
+        sae_model.eval()
+        fused_model.eval()
+        
+        input_embeddings = np.vstack([base_model.encode(batch).detach().cpu().numpy() for batch in inputs])
+        input_embeddings = DataLoader(input_embeddings, batch_size, device, shuffle=False)
+        
+        cosines = Utils().evaluate_cosine_similarity(sae_model, input_embeddings)
+        l0s = Utils().evaluate_l0(sae_model, input_embeddings)
+        dead_neurons = Utils().evaluate_dead_neurons(sae_model, input_embeddings)
+        recalls = Utils().evaluate_recall_at_k(base_model, inputs, targets, k=20)
+        recalls_with_sae = Utils().evaluate_recall_at_k(fused_model, inputs, targets, k=20)
+        recall_degradations = recalls_with_sae - recalls
+        ndcgs = Utils().evaluate_ndcg_at_k(base_model, inputs, targets, k=20)
+        ndcgs_with_sae = Utils().evaluate_ndcg_at_k(fused_model, inputs, targets, k=20)
+        ndcg_degradations = ndcgs_with_sae - ndcgs
+        
+        return {
+            'CosineSim': float(np.mean(cosines)),
+            'L0': float(np.mean(l0s)),
+            'DeadNeurons': dead_neurons / sae_model.encoder_w.shape[1],
+            'R20': float(np.mean(recalls_with_sae)),
+            'R20_Degradation': float(np.mean(recall_degradations)),
+            'NDCG20': float(np.mean(ndcgs_with_sae)),
+            'NDCG20_Degradation': float(np.mean(ndcg_degradations))
+        }
+        
+        
+        
+    @staticmethod
+    def evaluate_cosine_similarity(model, inputs: DataLoader) -> np.ndarray:
+        cosine = []
+        for input_batch in inputs:
+            output_batch = model(input_batch)[0]
+            cosine.append(torch.nn.functional.cosine_similarity(input_batch, output_batch, 1))
+        return torch.cat(cosine).detach().cpu().numpy()
+
+
+    @staticmethod
+    def evaluate_l0(model, inputs: DataLoader) -> np.ndarray:
+        l0s = []
+        for input_batch in inputs:
+            e = model.encode(input_batch)[0]
+            l0s.append((e > 0).float().sum(-1))
+        return torch.cat(l0s).detach().cpu().numpy()
+
+    @staticmethod
+    def evaluate_dead_neurons(model, inputs: DataLoader) -> int:
+        dead_neurons = None
+        for input_batch in inputs:
+            e = model.encode(input_batch)[0]
+            if dead_neurons is None:
+                dead_neurons = np.arange(input_batch.shape[1])
+            dead_neurons = np.intersect1d(dead_neurons, np.where((e != 0).sum(0).detach().cpu().numpy() == 0)[0])
+        return len(dead_neurons)
+        
         
     @staticmethod
     def save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, filepath: str) -> None:
@@ -100,6 +165,6 @@ class Utils:
         
     @staticmethod
     def load_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, filepath: str) -> None:
-        checkpoint = torch.load(filepath)
+        checkpoint = torch.load(filepath, weights_only=True)
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])

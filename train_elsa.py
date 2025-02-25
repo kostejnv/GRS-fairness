@@ -51,18 +51,17 @@ def train(args, model: ELSA, optimizer, train_csr, valid_csr, test_csr):
     batch_size = args.batch_size
     early_stop = args.early_stop
     
-    mlflow.set_experiment(f'ELSA_{dataset}')
+    mlflow.set_experiment(f'Dense_{dataset}')
     mlflow.set_experiment_tags({
         'dataset': args.dataset,
-        'recommendation_type': 'user',
-        'model': 'ELSA',
-        'mlflow.note.content': f'This experiments trains an ELSA model on the {dataset} dataset'
+        'task': 'dense_training',
+        'mlflow.note.content': f'This experiments trains an dense user embedding for the {dataset}.'
     })
     
-    with mlflow.start_run():
+    with mlflow.start_run(run_name=f'{args.model}_{args.factors}_{TIMESTAMP}') as run:
         mlflow.log_params(vars(args))
         
-        train_dataloader = DataLoader(train_csr, batch_size, device)
+        train_dataloader = DataLoader(train_csr, batch_size, device, shuffle=True)
         valid_dataloader = DataLoader(valid_csr, batch_size, device, shuffle=False)
         
         if early_stop > 0:
@@ -84,7 +83,7 @@ def train(args, model: ELSA, optimizer, train_csr, valid_csr, test_csr):
             mlflow.log_metric('loss/train', float(np.mean(train_losses)), step=epoch)
             # Evaluate
             model.eval()
-            valid_metrics = Utils.evaluate(model, valid_csr, args.target_ratio, batch_size, device)
+            valid_metrics = Utils.evaluate_dense_encoder(model, valid_csr, args.target_ratio, batch_size, device)
             valid_metrics['loss'] = float(np.mean([model.compute_loss_dict(batch)['Loss'].item() for batch in valid_dataloader]))
             for key, val in valid_metrics.items():
                 mlflow.log_metric(f'{key}/valid', val, step=epoch)
@@ -107,7 +106,7 @@ def train(args, model: ELSA, optimizer, train_csr, valid_csr, test_csr):
             model = best_model
             optimizer = best_optimizer
             
-        test_metrics = Utils.evaluate(model, test_csr, args.target_ratio, batch_size, device)
+        test_metrics = Utils.evaluate_dense_encoder(model, test_csr, args.target_ratio, batch_size, device)
         for key, val in test_metrics.items():
             mlflow.log_metric(f'{key}/test', val)
         logging.info(f'Test metrics - R@20: {test_metrics["R20"]:.4f} - NDCG20: {test_metrics["NDCG20"]:.4f}')
@@ -121,6 +120,7 @@ def train(args, model: ELSA, optimizer, train_csr, valid_csr, test_csr):
         logging.info('Model successfully saved')
                 
 def main(args):
+    args.model = 'ELSA'
     
     Utils.set_seed(args.seed)
     

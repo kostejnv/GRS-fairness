@@ -1,6 +1,7 @@
-from .dataset_loader import DatasetLoader, DataLoader
+from .dataset_loader import DatasetLoader
 from .echoNest_loader import EchoNestLoader
 from .lastFm1k_loader import LastFm1kLoader
+from .data_loader import DataLoader
 
 __all__ = [
     'EchoNestLoader',
