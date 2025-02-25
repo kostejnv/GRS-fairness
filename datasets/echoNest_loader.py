@@ -2,8 +2,8 @@ from datasets.dataset_loader import DatasetLoader
 import polars as pl
 
 class EchoNestLoader(DatasetLoader):
-    MIN_USER_INTERACTIONS: int = 50
-    MIN_ITEM_INTERACTIONS: int = 500
+    MIN_USER_INTERACTIONS: int = 20
+    MIN_ITEM_INTERACTIONS: int = 200
     def __init__(self, path: str = './data/EchoNest.txt'):
         super().__init__(path, 'EchoNest')
         

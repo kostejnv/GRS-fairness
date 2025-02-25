@@ -135,6 +135,11 @@ def main(args):
             raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
     dataset_loader.prepare(args)
     
+    args.min_user_interactions = dataset_loader.MIN_USER_INTERACTIONS
+    args.min_item_interactions = dataset_loader.MIN_ITEM_INTERACTIONS
+    args.users = len(dataset_loader.users)
+    args.items = len(dataset_loader.items)
+    
     train_csr = dataset_loader.train_csr
     valid_csr = dataset_loader.valid_csr
     test_csr = dataset_loader.test_csr

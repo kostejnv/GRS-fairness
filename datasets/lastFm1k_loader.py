@@ -2,7 +2,7 @@ from datasets.dataset_loader import DatasetLoader
 import polars as pl
 
 class LastFm1kLoader(DatasetLoader):
-    MIN_USER_INTERACTIONS: int = 20
+    MIN_USER_INTERACTIONS: int = 10
     MIN_ITEM_INTERACTIONS: int = 20
     
     def __init__(self, path: str = './data/LastFm1k.tsv'):
