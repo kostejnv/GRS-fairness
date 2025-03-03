@@ -29,7 +29,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser() # TODO: Add description
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     # dataset
-    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     # training details
@@ -43,11 +43,11 @@ def parse_arguments():
     # model
     parser.add_argument('--model', type=str, default='TopKSAE', help='Model to use (BasicSAE, TopKSAE)')
     parser.add_argument('--embedding_dim', type=int, default=2048, help='Number of factors for the model')
-    parser.add_argument('--top_k', type=int, default=64, help='Top k parameter for TopKSAE')
+    parser.add_argument('--top_k', type=int, default=32, help='Top k parameter for TopKSAE')
     parser.add_argument("--reconstruction_loss", type=str, default="Cosine", help="Reconstruction loss (L2 or Cosine)")
     parser.add_argument("--l1_coef", type=float, default=3e-4, help="L1 loss coefficient (BasicSAE, TopKSAE)")
     # base model
-    parser.add_argument("--base_run_id", type=str, default='32b65a3a9edf4ff4b46e9d8385d93bc4', help="Run ID of the base model")
+    parser.add_argument("--base_run_id", type=str, default='d3653aa37bea49ec9917c479300aa2f3', help="Run ID of the base model")
     
     # evaluate
     parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
