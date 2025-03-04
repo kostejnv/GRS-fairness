@@ -100,8 +100,8 @@ def main(args):
     logging.info(f'Similarity matrix shape: {len(similarity_matrix)}')
     
     # compute thresholds
-    similarity_values = torch.triu(similarity_matrix, diagonal=1).flatten()
-    similarity_values = similarity_values[similarity_values != 0].to(torch.float32)
+    mask = torch.triu(torch.ones_like(similarity_matrix, dtype=torch.bool), diagonal=1)
+    similarity_values = torch.masked_select(similarity_matrix, mask).to(torch.float32)
     
     logging.info(f'Similarity values dtype: {similarity_values.dtype}')
 
