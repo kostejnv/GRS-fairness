@@ -94,14 +94,14 @@ def main(args):
     
     # compute similarity matrix
     normalized_embeddings = F.normalize(user_embeddings, p=2, dim=1).to(torch.float16)
-    similarity_matrix = torch.matmul(normalized_embeddings, normalized_embeddings.T)
+    similarity_matrix = torch.matmul(normalized_embeddings, normalized_embeddings.T).to('cpu')
     similarity_matrix = (similarity_matrix + 1) / 2 # opposite user embeddings are completely opposite, so we normalize to [0,1]
 
     logging.info(f'Similarity matrix shape: {len(similarity_matrix)}')
     
     # compute thresholds
-    mask = torch.triu(torch.ones_like(similarity_matrix, dtype=torch.bool), diagonal=1)
-    similarity_values = torch.masked_select(similarity_matrix, mask).to(torch.float16).to('cpu')
+    mask = torch.triu(torch.ones_like(similarity_matrix, dtype=torch.bool), diagonal=1).to('cpu')
+    similarity_values = torch.masked_select(similarity_matrix, mask)
     
     logging.info(f'Similarity values dtype: {similarity_values.dtype}')
 
