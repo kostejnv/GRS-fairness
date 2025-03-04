@@ -26,31 +26,27 @@ device = Utils.set_device()
 logging.info(f'Device: {device}')
 
 def parse_arguments():
-    parser = argparse.ArgumentParser() # TODO: Add description
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--epochs', type=int, help='Number of epochs to train the model')
+    parser.add_argument('--early_stop', type=int, help='Number of epochs to wait for improvement before stopping')
+    parser.add_argument('--batch_size', type=int, help='Batch size for training')
+    parser.add_argument('--embedding_dim', type=int, help='Number of factors for the model')
+    parser.add_argument('--top_k', type=int, help='Top k parameter for TopKSAE')
+    parser.add_argument("--base_run_id", type=str, help="Run ID of the base model")
+    parser.add_argument("--sample_users", action='store_true', help="Choose randomly 0.5 - 1.0 of the users interactions")
+    # stable parameters
+    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate for training')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
-    # dataset
-    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
-    # training details
-    parser.add_argument('--epochs', type=int, default=250, help='Number of epochs to train the model')
-    parser.add_argument('--batch_size', type=int, default=64, help='Batch size for training')
-    parser.add_argument('--early_stop', type=int, default=50, help='Number of epochs to wait for improvement before stopping')
-    # optimizer
-    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate for training')
     parser.add_argument('--beta1', type=float, default=0.9, help='Beta1 for Adam optimizer')
     parser.add_argument('--beta2', type=float, default=0.99, help='Beta2 for Adam optimizer')
-    # model
     parser.add_argument('--model', type=str, default='TopKSAE', help='Model to use (BasicSAE, TopKSAE)')
-    parser.add_argument('--embedding_dim', type=int, default=2048, help='Number of factors for the model')
-    parser.add_argument('--top_k', type=int, default=32, help='Top k parameter for TopKSAE')
     parser.add_argument("--reconstruction_loss", type=str, default="Cosine", help="Reconstruction loss (L2 or Cosine)")
     parser.add_argument("--l1_coef", type=float, default=3e-4, help="L1 loss coefficient (BasicSAE, TopKSAE)")
-    # base model
-    parser.add_argument("--base_run_id", type=str, default='d3653aa37bea49ec9917c479300aa2f3', help="Run ID of the base model")
-    
-    # evaluate
     parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
+    
     return parser.parse_args()
 
 def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, test_csr):
@@ -107,6 +103,11 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             
             pbar = tqdm(train_embeddings_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
             for batch in pbar: # train one batch
+                if args.sample_users:
+                    ratio = random.uniform(0.5, 1.0)
+                    mask = torch.rand_like(batch) < ratio
+                    batch = batch * mask
+                
                 losses = model.train_step(optimizer, batch)
                 pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
                 
@@ -128,7 +129,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
                 mlflow.log_metric(f'loss/{key}/valid', float(np.mean(val)), step=epoch)
                 
             # metrics
-            valid_metrics = Utils.evaluate_sparse_encoder(base_model, model, valid_csr, args.target_ratio, batch_size, device)
+            valid_metrics = Utils.evaluate_sparse_encoder(base_model, model, valid_csr, args.target_ratio, batch_size, device, seed=args.seed+epoch)
             for key, val in valid_metrics.items():
                 mlflow.log_metric(f'{key}/valid', val, step=epoch)
             
@@ -151,7 +152,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             model = best_model
             optimizer = best_optimizer
             
-        test_metrics = Utils.evaluate_sparse_encoder(base_model, model, test_csr, args.target_ratio, batch_size, device)
+        test_metrics = Utils.evaluate_sparse_encoder(base_model, model, test_csr, args.target_ratio, batch_size, device, seed=args.seed)
         for key, val in test_metrics.items():
             mlflow.log_metric(f'{key}/test', val, step=epoch)
         logging.info(f'Test metrics - Cosine: {test_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {test_metrics["NDCG20_Degradation"]:.4f}')
