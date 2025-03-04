@@ -183,15 +183,14 @@ def main(args):
     args.base_items = int(base_params['items'])
     args.expansion_ratio = args.embedding_dim / args.base_factors
     
-    #Load dataset
+    # Load dataset
     logging.info(f'Loading {args.dataset}')
-    match args.dataset:
-        case 'EchoNest':
-            dataset_loader = EchoNestLoader()
-        case 'LastFM1k':
-            dataset_loader = LastFm1kLoader()
-        case _:
-            raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
+    if args.dataset == 'EchoNest':
+        dataset_loader = EchoNestLoader()
+    elif args.dataset == 'LastFM1k':
+        dataset_loader = LastFm1kLoader()
+    else:
+        raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
     dataset_loader.prepare(args)
     
     args.min_user_interactions = dataset_loader.MIN_USER_INTERACTIONS
@@ -211,13 +210,12 @@ def main(args):
     Utils.load_checkpoint(base_model, base_optimizer, f'{artifact_path}/checkpoint.ckpt')
     base_model.eval()
     
-    match args.model:
-        case 'BasicSAE':
-            model = BasicSAE(args.base_factors, args.embedding_dim, args.reconstruction_loss, l1_coef=args.l1_coef).to(device)
-        case 'TopKSAE':
-            model = TopKSAE(args.base_factors, args.embedding_dim, args.reconstruction_loss, l1_coef=args.l1_coef, k=args.top_k).to(device)
-        case _:
-            raise ValueError(f'Model {args.model} not supported. Check typos.')
+    if args.model == 'BasicSAE':
+        model = BasicSAE(args.base_factors, args.embedding_dim, args.reconstruction_loss, l1_coef=args.l1_coef).to(device)
+    elif args.model == 'TopKSAE':
+        model = TopKSAE(args.base_factors, args.embedding_dim, args.reconstruction_loss, l1_coef=args.l1_coef, k=args.top_k).to(device)
+    else:
+        raise ValueError(f'Model {args.model} not supported. Check typos.')
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2))
     

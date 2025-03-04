@@ -124,15 +124,14 @@ def main(args):
     
     Utils.set_seed(args.seed)
     
-    #Load dataset
+    # Load dataset
     logging.info(f'Loading {args.dataset}')
-    match args.dataset:
-        case 'EchoNest':
-            dataset_loader = EchoNestLoader()
-        case 'LastFM1k':
-            dataset_loader = LastFm1kLoader()
-        case _:
-            raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
+    if args.dataset == 'EchoNest':
+        dataset_loader = EchoNestLoader()
+    elif args.dataset == 'LastFM1k':
+        dataset_loader = LastFm1kLoader()
+    else:
+        raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
     dataset_loader.prepare(args)
     
     args.min_user_interactions = dataset_loader.MIN_USER_INTERACTIONS
