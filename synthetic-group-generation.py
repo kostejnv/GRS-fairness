@@ -93,8 +93,8 @@ def main(args):
     user_embeddings = torch.cat(batches_embeddings)
     
     # compute similarity matrix
-    normalized_embeddings = F.normalize(user_embeddings, p=2, dim=1).to(torch.float8_e4m3fn)
-    similarity_matrix = torch.matmul(normalized_embeddings, normalized_embeddings.T).to('cpu')
+    normalized_embeddings = F.normalize(user_embeddings, p=2, dim=1).to(torch.float16)
+    similarity_matrix = torch.matmul(normalized_embeddings, normalized_embeddings.T).to(torch.float16).to('cpu')
     similarity_matrix = (similarity_matrix + 1) / 2 # opposite user embeddings are completely opposite, so we normalize to [0,1]
 
     logging.info(f'Similarity matrix shape: {len(similarity_matrix)}')
