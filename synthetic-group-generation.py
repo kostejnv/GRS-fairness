@@ -83,11 +83,6 @@ def main(args):
         csr_interactions = dataset_loader.test_csr
     else:
         raise ValueError(f'User set {args.user_set} not supported. Check typo.')
-    
-    # Sample 0.5 rows
-    num_rows = csr_interactions.shape[0]
-    sampled_indices = np.random.choice(num_rows, size=int(0.5 * num_rows), replace=False)
-    csr_interactions = csr_interactions[sampled_indices]
 
     interactions_batches = DataLoader(csr_interactions, batch_size=1024, device=device, shuffle=False)
 
@@ -106,14 +101,11 @@ def main(args):
     logging.info(f'Similarity matrix shape: {len(similarity_matrix)}')
     
     # compute thresholds
-    mask = torch.triu(torch.ones_like(similarity_matrix, dtype=torch.bool), diagonal=1)
     
-    num_elements = int(mask.sum().item())
-    similarity_values = torch.empty(size=(num_elements,), dtype=torch.float16)
-    
-    torch.masked_select(similarity_matrix, mask, out=similarity_values)
-    
-    logging.info(f'Similarity values dtype: {similarity_values.dtype}')
+    # select 100 000 values to compute quantiles without flattening the matrix
+    similarity_values = similarity_matrix[torch.randint(0, len(similarity_matrix), (100_000, 2))]
+    # filter out all 1 values
+    similarity_values = similarity_values[similarity_values != 1]
 
     Td = similarity_values.quantile(args.td_quantile)
     Ts = similarity_values.quantile(args.ts_quantile)
