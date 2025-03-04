@@ -27,7 +27,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser() # TODO: Add description
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     # dataset
-    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--td_quantile', type=float, default=0.9, help='Threshold quantile for similarity')
@@ -36,9 +36,9 @@ def parse_arguments():
     parser.add_argument('--divergent_groups', type=list, default=[3,5], help='Number of divergent groups')
     parser.add_argument('--opposing_groups', type=list, default=[[2,1],[3,2],[4,1]], help='Number of opposing groups')
     parser.add_argument('--group_count', type=int, default=5, help='Number of groups')
-    parser.add_argument("--run_id", type=str, default='d3653aa37bea49ec9917c479300aa2f3', help="Run ID of the base model")
+    parser.add_argument("--run_id", type=str, default='32b65a3a9edf4ff4b46e9d8385d93bc4', help="Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
-    parser.add_argument("--user_set", type=str, default='test', help="User set to generate groups for (full, test)")
+    parser.add_argument("--user_set", type=str, default='full', help="User set to generate groups for (full, test)")
     
     return parser.parse_args()
 
@@ -95,17 +95,20 @@ def main(args):
     
     # compute similarity matrix
     normalized_embeddings = F.normalize(user_embeddings, p=2, dim=1).to(torch.float16)
-    similarity_matrix = torch.matmul(normalized_embeddings, normalized_embeddings.T).to(torch.float16).to('cpu')
+    similarity_matrix = torch.matmul(normalized_embeddings, normalized_embeddings.T)
     similarity_matrix = (similarity_matrix + 1) / 2 # opposite user embeddings are completely opposite, so we normalize to [0,1]
+    logging.info(f'Similarity matrix shape: {similarity_matrix.shape}')
 
-    logging.info(f'Similarity matrix shape: {len(similarity_matrix)}')
     
     # compute thresholds
     
     # select 100 000 values to compute quantiles without flattening the matrix
-    similarity_values = similarity_matrix[torch.randint(0, len(similarity_matrix), (100_000, 2))]
+    indices = np.random.randint(0, len(similarity_matrix), (100_000, 2))
+    similarity_values = similarity_matrix[indices[:,0], indices[:,1]]
     # filter out all 1 values
-    similarity_values = similarity_values[similarity_values != 1]
+    similarity_values = similarity_values[similarity_values != 1].to(torch.float32)
+    
+    logging.info(f'Similarity values shape: {similarity_values.shape}')
 
     Td = similarity_values.quantile(args.td_quantile)
     Ts = similarity_values.quantile(args.ts_quantile)
