@@ -3,7 +3,7 @@ import numpy as np
 import scipy.sparse as sp
 
 class DataLoader:
-    def __init__(self, data: sp.csr_matrix | np.ndarray | torch.Tensor, batch_size: int, device: torch.device, shuffle: bool = False):
+    def __init__(self, data, batch_size: int, device: torch.device, shuffle: bool = False):
         self.data = data
         self.dataset_size = self.data.shape[0]
         self.batch_size = batch_size

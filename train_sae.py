@@ -171,7 +171,9 @@ def main(args):
     base_model_run = mlflow.get_run(args.base_run_id)
     
     base_params = base_model_run.data.params
-    artifact_path = base_model_run.info.artifact_uri.replace('file://', '') # type: ignore
+    artifact_path = base_model_run.info.artifact_uri
+    # remove all before mlruns
+    artifact_path = './' + artifact_path[artifact_path.find('mlruns'):]
     
     assert base_params['dataset'] == args.dataset, 'Base model dataset does not match current dataset'
     
@@ -205,9 +207,10 @@ def main(args):
     valid_csr = dataset_loader.valid_csr
     test_csr = dataset_loader.test_csr
     
-    base_model = ELSA(args.base_items, args.base_factors).to(device)
+    base_model = ELSA(args.base_items, args.base_factors)
     base_optimizer = torch.optim.Adam(base_model.parameters())
     Utils.load_checkpoint(base_model, base_optimizer, f'{artifact_path}/checkpoint.ckpt')
+    base_model.to(device)
     base_model.eval()
     
     if args.model == 'BasicSAE':

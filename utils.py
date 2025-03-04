@@ -156,8 +156,8 @@ class Utils:
     @staticmethod
     def save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, filepath: str) -> None:
         checkpoint = {
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
+            "model_state_dict": model.to('cpu').state_dict(),
+            "optimizer_state_dict": optimizer.state_dict()
         }
         if '/' in filepath:
             os.makedirs("/".join(filepath.split("/")[:-1]), exist_ok=True)
