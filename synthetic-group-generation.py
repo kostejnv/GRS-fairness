@@ -101,7 +101,7 @@ def main(args):
     
     # compute thresholds
     mask = torch.triu(torch.ones_like(similarity_matrix, dtype=torch.bool), diagonal=1)
-    similarity_values = torch.masked_select(similarity_matrix, mask).to(torch.float32)
+    similarity_values = torch.masked_select(similarity_matrix, mask).to(torch.float16).to('cpu')
     
     logging.info(f'Similarity values dtype: {similarity_values.dtype}')
 
