@@ -73,7 +73,7 @@ class DatasetLoader():
         self.logger.info(f'csr_matrix created in {csr_end - filter_end:.2f}s')
         
         self.logger.info(f'Splitting dataset...')
-        self._split(cfg.val_ratio, cfg.test_ratio)
+        self._split(cfg.val_ratio, cfg.test_ratio, seed=cfg.seed)
         split_end = time.time()
         self.logger.info(f'Dataset split in {split_end - csr_end:.2f}s')
         
@@ -122,8 +122,9 @@ class DatasetLoader():
             shape=(len(self.users), len(self.items))
         )
         
-    def _split(self, val_ratio: float = 0.1, test_ratio: float = 0.1) -> None:
+    def _split(self, val_ratio: float = 0.1, test_ratio: float = 0.1, seed: int = 42) -> None:
         '''Split the dataset into train, validation and test sets'''
+        np.random.seed(seed)
         p = np.random.permutation(len(self.users))
         val_count, test_count = int(len(self.users) * val_ratio), int(len(self.users) * test_ratio)
         train_idx, val_idx, test_idx = p[val_count+test_count:], p[:val_count], p[val_count:val_count+test_count]

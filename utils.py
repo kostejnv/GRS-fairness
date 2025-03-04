@@ -23,7 +23,8 @@ class Utils:
         return device
     
     @staticmethod
-    def split_input_target_interactions(user_item_csr: sp.csr_matrix, target_ratio: float) -> tuple[sp.csr_matrix, sp.csr_matrix]:
+    def split_input_target_interactions(user_item_csr: sp.csr_matrix, target_ratio: float, seed: int = 42) -> tuple[sp.csr_matrix, sp.csr_matrix]:
+        np.random.seed(seed)
         target_mask = np.concatenate(
             [
                 np.random.permutation(np.array([True] * int(np.ceil(row_nnz * target_ratio)) + [False] * int((row_nnz - np.ceil(row_nnz * target_ratio)))))
@@ -77,8 +78,8 @@ class Utils:
         return torch.cat(ndcg).detach().cpu().numpy()
     
     @staticmethod
-    def evaluate_dense_encoder(model: ELSA, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device) -> dict[str, float]:
-        inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio)
+    def evaluate_dense_encoder(model: ELSA, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device, seed: int = 42) -> dict[str, float]:
+        inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio, seed)
         inputs = DataLoader(inputs, batch_size, device, shuffle=False)
         targets = DataLoader(targets, batch_size, device, shuffle=False)
         recalls = Utils.evaluate_recall_at_k(model, inputs, targets, k=20)
@@ -89,10 +90,11 @@ class Utils:
         }
         
     @staticmethod
-    def evaluate_sparse_encoder(base_model:ELSA, sae_model:SAE, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device) -> dict[str, float]:
-        inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio)
+    def evaluate_sparse_encoder(base_model:ELSA, sae_model:SAE, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device, seed: int = 42) -> dict[str, float]:
+        inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio, seed)
         inputs = DataLoader(inputs, batch_size, device, shuffle=False)
         targets = DataLoader(targets, batch_size, device, shuffle=False)
+        full = DataLoader(split_csr, batch_size, device, shuffle=False)
         
         fused_model = ELSAWithSAE(base_model, sae_model)
         
@@ -100,7 +102,7 @@ class Utils:
         sae_model.eval()
         fused_model.eval()
         
-        input_embeddings = np.vstack([base_model.encode(batch).detach().cpu().numpy() for batch in inputs])
+        input_embeddings = np.vstack([base_model.encode(batch).detach().cpu().numpy() for batch in full])
         input_embeddings = DataLoader(input_embeddings, batch_size, device, shuffle=False)
         
         cosines = Utils().evaluate_cosine_similarity(sae_model, input_embeddings)

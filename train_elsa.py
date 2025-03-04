@@ -25,24 +25,20 @@ device = Utils.set_device()
 logging.info(f'Device: {device}')
 
 def parse_arguments():
-    parser = argparse.ArgumentParser() # TODO: Add description
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--epochs', type=int, help='Number of epochs to train the model')
+    parser.add_argument('--batch_size', type=int, help='Batch size for training')
+    parser.add_argument('--factors', type=int, help='Number of factors for the model')
+    parser.add_argument('--lr', type=float, help='Learning rate for training')
+    parser.add_argument('--early_stop', type=int, help='Number of epochs to wait for improvement before stopping')
+    # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
-    # dataset
-    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
-    # training details
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train the model')
-    parser.add_argument('--batch_size', type=int, default=1024, help='Batch size for training')
-    # optimizer
-    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate for training')
+    parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
     parser.add_argument('--beta1', type=float, default=0.9, help='Beta1 for Adam optimizer')
     parser.add_argument('--beta2', type=float, default=0.99, help='Beta2 for Adam optimizer')
-    # model
-    parser.add_argument('--factors', type=int, default=1024, help='Number of factors for the model')
-    # evaluate
-    parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
-    parser.add_argument('--early_stop', type=int, default=5, help='Number of epochs to wait for improvement before stopping')
     return parser.parse_args()
 
 def train(args, model: ELSA, optimizer, train_csr, valid_csr, test_csr):
@@ -83,7 +79,7 @@ def train(args, model: ELSA, optimizer, train_csr, valid_csr, test_csr):
             mlflow.log_metric('loss/train', float(np.mean(train_losses)), step=epoch)
             # Evaluate
             model.eval()
-            valid_metrics = Utils.evaluate_dense_encoder(model, valid_csr, args.target_ratio, batch_size, device)
+            valid_metrics = Utils.evaluate_dense_encoder(model, valid_csr, args.target_ratio, batch_size, device, seed=args.seed+epoch)
             valid_metrics['loss'] = float(np.mean([model.compute_loss_dict(batch)['Loss'].item() for batch in valid_dataloader]))
             for key, val in valid_metrics.items():
                 mlflow.log_metric(f'{key}/valid', val, step=epoch)
@@ -106,7 +102,7 @@ def train(args, model: ELSA, optimizer, train_csr, valid_csr, test_csr):
             model = best_model
             optimizer = best_optimizer
             
-        test_metrics = Utils.evaluate_dense_encoder(model, test_csr, args.target_ratio, batch_size, device)
+        test_metrics = Utils.evaluate_dense_encoder(model, test_csr, args.target_ratio, batch_size, device, seed=args.seed)
         for key, val in test_metrics.items():
             mlflow.log_metric(f'{key}/test', val)
         logging.info(f'Test metrics - R@20: {test_metrics["R20"]:.4f} - NDCG20: {test_metrics["NDCG20"]:.4f}')
