@@ -35,8 +35,8 @@ def parse_arguments():
     parser.add_argument('--similar_groups', type=list, default=[3,5], help='Number of similar groups')
     parser.add_argument('--divergent_groups', type=list, default=[3,5], help='Number of divergent groups')
     parser.add_argument('--opposing_groups', type=list, default=[[2,1],[3,2],[4,1]], help='Number of opposing groups')
-    parser.add_argument('--group_count', type=int, default=5, help='Number of groups')
-    parser.add_argument("--run_id", type=str, default='32b65a3a9edf4ff4b46e9d8385d93bc4', help="Run ID of the base model")
+    parser.add_argument('--group_count', type=int, default=75, help='Number of groups')
+    parser.add_argument("--run_id", type=str, default='34ade4833e9e48d9b2d3c504a0af4346', help="Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
     parser.add_argument("--user_set", type=str, default='full', help="User set to generate groups for (full, test)")
     
@@ -125,7 +125,7 @@ def main(args):
         user_count = len(similarity_matrix)
         group_members = [random.randint(0, user_count-1)]
         rest = list(set(range(user_count)) - set(group_members))
-        for _ in range(30_000): # it can be blocked in a loop if the group does not exists
+        for _ in range(1_000): # it can be blocked in a loop if the group does not exists
             user = random.choice(rest)
             if is_user_similar(group_members, user):
                 group_members.append(user)
@@ -151,7 +151,7 @@ def main(args):
         user_count = len(similarity_matrix)
         group_members = [random.randint(0, user_count-1)]
         rest = list(set(range(user_count)) - set(group_members))
-        for _ in range(30_000): # it can be blocked in a loop if the group does not exists
+        for _ in range(1_000): # it can be blocked in a loop if the group does not exists
             user = random.choice(rest)
             if is_user_divergent(group_members, user):
                 group_members.append(user)
@@ -179,7 +179,7 @@ def main(args):
         rest = list(set(range(user_count)) - set(group_members[0]))
         
         index = 1
-        for _ in range(30_000):
+        for _ in range(1_000):
             # choose the subgroup to expand
             group_to_expand = index % 2
             if groups_lefts[group_to_expand] == 0:
@@ -233,7 +233,7 @@ def main(args):
         np.save(f'{out_path}/divergent_{group_size}.npy', np.array(groups))
         
     for group_size, groups in opposing_groups.items():
-        np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}.npy', np.array(groups))
+        np.save(f'{out_path}/opposing_{group_size[1]}_{group_size[3]}.npy', np.array(groups))
         
     logging.info('Groups saved')
     
