@@ -103,7 +103,7 @@ def main(args):
     # compute thresholds
     
     # select 100 000 values to compute quantiles without flattening the matrix
-    indices = np.random.randint(0, len(similarity_matrix), (100_000, 2))
+    indices = np.random.randint(0, len(similarity_matrix), (1_000_000, 2))
     similarity_values = similarity_matrix[indices[:,0], indices[:,1]]
     # filter out all 1 values
     similarity_values = similarity_values[similarity_values != 1].to(torch.float32)
