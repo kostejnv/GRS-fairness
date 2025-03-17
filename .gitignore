@@ -1,8 +1,11 @@
 **/__pycache__/
 
 .vscode/
+.venv
 
 data/
 mlruns/
+output.txt
+sbatch_job.sh
 
 **/debug*
