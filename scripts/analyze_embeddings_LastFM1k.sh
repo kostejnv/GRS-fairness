@@ -14,5 +14,5 @@ sae_run_ids=(
 
 for sae_run_id in "${sae_run_ids[@]}"
 do
-    python analyze_group_embedding_intersection.py --dataset LastFM1k --sae_run_id "$sae_run_id" --group_type sim --group_size 3
+    python analyze_embedding.py --dataset LastFM1k --sae_run_id "$sae_run_id" --user_set full
 done

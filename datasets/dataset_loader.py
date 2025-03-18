@@ -24,6 +24,9 @@ class DatasetLoader():
     train_users: np.ndarray
     valid_users: np.ndarray
     test_users: np.ndarray
+    train_idx: np.ndarray
+    valid_idx: np.ndarray
+    test_idx: np.ndarray
     
     def __init__(self, path: str, name: str):
         self.name = name
@@ -129,6 +132,6 @@ class DatasetLoader():
         val_count, test_count = int(len(self.users) * val_ratio), int(len(self.users) * test_ratio)
         train_idx, val_idx, test_idx = p[val_count+test_count:], p[:val_count], p[val_count:val_count+test_count]
 
-        self.train_users, self.train_csr = self.users[train_idx], self.csr_interactions[train_idx]
-        self.valid_users, self.valid_csr = self.users[val_idx], self.csr_interactions[val_idx]
-        self.test_users, self.test_csr = self.users[test_idx], self.csr_interactions[test_idx]
+        self.train_users, self.train_idx, self.train_csr = self.users[train_idx], train_idx, self.csr_interactions[train_idx]
+        self.valid_users, self.valid_idx, self.valid_csr = self.users[val_idx], val_idx, self.csr_interactions[val_idx]
+        self.test_users, self.test_idx, self.test_csr = self.users[test_idx], test_idx, self.csr_interactions[test_idx]

@@ -210,7 +210,7 @@ def main(args):
     
     base_model = ELSA(args.base_items, args.base_factors)
     base_optimizer = torch.optim.Adam(base_model.parameters())
-    Utils.load_checkpoint(base_model, base_optimizer, f'{artifact_path}/checkpoint.ckpt')
+    Utils.load_checkpoint(base_model, base_optimizer, f'{artifact_path}/checkpoint.ckpt', device)
     base_model.to(device)
     base_model.eval()
     

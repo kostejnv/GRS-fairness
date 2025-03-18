@@ -27,7 +27,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser() # TODO: Add description
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     # dataset
-    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--td_quantile', type=float, default=0.9, help='Threshold quantile for similarity')
@@ -35,8 +35,9 @@ def parse_arguments():
     parser.add_argument('--similar_groups', type=list, default=[3,5], help='Number of similar groups')
     parser.add_argument('--divergent_groups', type=list, default=[3,5], help='Number of divergent groups')
     parser.add_argument('--opposing_groups', type=list, default=[[2,1],[3,2],[4,1]], help='Number of opposing groups')
-    parser.add_argument('--group_count', type=int, default=75, help='Number of groups')
-    parser.add_argument("--run_id", type=str, default='34ade4833e9e48d9b2d3c504a0af4346', help="Run ID of the base model")
+    parser.add_argument('--user_sample', type=int, default=5000, help='Number of users to sample')
+    parser.add_argument('--group_count', type=int, default=100, help='Number of groups')
+    parser.add_argument("--run_id", type=str, default='494195a6c97f49169010f64a3bfcdf2a', help="Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
     parser.add_argument("--user_set", type=str, default='full', help="User set to generate groups for (full, test)")
     
@@ -62,7 +63,7 @@ def main(args):
 
     model = ELSA(items, factors).to(device)
     optimizer = torch.optim.Adam(model.parameters()) # not used, but needed for loading
-    Utils.load_checkpoint(model, optimizer, f'{artifact_path}/checkpoint.ckpt')
+    Utils.load_checkpoint(model, optimizer, f'{artifact_path}/checkpoint.ckpt', device)
     model.eval()
     logging.info('Model loaded')
     
@@ -78,11 +79,23 @@ def main(args):
     
     # load interactions
     if args.user_set == 'full':
-        csr_interactions = dataset_loader.csr_interactions
+        user_sample = min(args.user_sample, len(dataset_loader.csr_interactions))
+        user_idx = np.random.permutation(len(dataset_loader.csr_interactions))[:user_sample]
+        csr_interactions = dataset_loader.csr_interactions[user_idx]
+    elif args.user_set == 'train':
+        user_sample = min(args.user_sample, len(dataset_loader.train_idx))
+        user_idx = np.random.choice(dataset_loader.train_idx, user_sample, replace=False)
+        csr_interactions = dataset_loader.csr_interactions[user_idx]
     elif args.user_set == 'test':
-        csr_interactions = dataset_loader.test_csr
+        user_sample = min(args.user_sample, len(dataset_loader.test_idx))
+        user_idx = np.random.choice(dataset_loader.test_idx, user_sample, replace=False)
+        csr_interactions = dataset_loader.csr_interactions[user_idx]
     else:
         raise ValueError(f'User set {args.user_set} not supported. Check typo.')
+    
+    user_ids = dataset_loader.users[user_idx]
+    
+    logging.info(f'Interactions shape: {csr_interactions.shape}')
 
     interactions_batches = DataLoader(csr_interactions, batch_size=1024, device=device, shuffle=False)
 
@@ -103,7 +116,8 @@ def main(args):
     # compute thresholds
     
     # select 100 000 values to compute quantiles without flattening the matrix
-    indices = np.random.randint(0, len(similarity_matrix), (1_000_000, 2))
+    indices = np.random.randint(0, len(similarity_matrix), (min(100_000, len(similarity_matrix)**2), 2))
+    logging.info(f'Sample {len(indices)} values to compute quantiles')
     similarity_values = similarity_matrix[indices[:,0], indices[:,1]]
     # filter out all 1 values
     similarity_values = similarity_values[similarity_values != 1].to(torch.float32)
@@ -208,17 +222,22 @@ def main(args):
     logging.info('Generating groups')
     similar_groups = {}
     for group_size in args.similar_groups:
-        similar_groups[group_size] = [similar_group(group_size) for _ in range(args.group_count)]
+        group_idxs = [similar_group(group_size) for _ in range(args.group_count)]
+        similar_groups[group_size] = user_ids[group_idxs]
     logging.info('Similar groups generated')
+    
+    
     
     divergent_groups = {}
     for group_size in args.divergent_groups:
-        divergent_groups[group_size] = [divergent_group(group_size) for _ in range(args.group_count)]
+        group_idxs = [divergent_group(group_size) for _ in range(args.group_count)]
+        divergent_groups[group_size] = user_ids[group_idxs]
     logging.info('Divergent groups generated')
     
     opposing_groups = {}
     for group_size in args.opposing_groups:
-        opposing_groups[str(group_size)] = [opposing_group(group_size) for _ in range(args.group_count)]
+        group_idxs = [opposing_group(group_size) for _ in range(args.group_count)]
+        opposing_groups[tuple(group_size)] = user_ids[group_idxs]
     logging.info('Opposing groups generated')
     
     # save groups as numpy arrays
@@ -233,7 +252,7 @@ def main(args):
         np.save(f'{out_path}/divergent_{group_size}.npy', np.array(groups))
         
     for group_size, groups in opposing_groups.items():
-        np.save(f'{out_path}/opposing_{group_size[1]}_{group_size[3]}.npy', np.array(groups))
+        np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}.npy', np.array(groups))
         
     logging.info('Groups saved')
     

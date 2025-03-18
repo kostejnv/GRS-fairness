@@ -31,6 +31,7 @@ def parse_arguments():
     parser.add_argument("--sae_run_id", type=str, help="Run ID of the analyzed SAE model")
     parser.add_argument("--group_type", type=str, help="Type of group to analyze. Options: 'sim', 'div', '21'")
     parser.add_argument("--group_size", type=int, default=3, help="Size of the group to analyze")
+    parser.add_argument("--user_set", type=str, default='train', help="User set from which the groups where sampled (full, test, train)")
     # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
@@ -75,18 +76,28 @@ def main(args):
     elif args.group_type == '21':
         filename = f'opposing_2_1.npy'
             
-    path = f'data/synthetic_groups/'
     if args.dataset == 'LastFM1k':
-        path += f'LastFM1k/full'
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'EchoNest':
-        path += f'EchoNest/test'
         dataset_loader = EchoNestLoader()
-            
     dataset_loader.prepare(args)
+
+    path = f'data/synthetic_groups/{args.dataset}/'
+    if args.user_set == 'full':
+        path += 'full'
+    elif args.user_set == 'train':
+        path += 'train'
+    elif args.user_set == 'test':
+        path += 'test'
+    else:
+        raise ValueError(f'User set {args.user_set} not supported. Check typo.')
+            
     path += f'/{filename}'
+    if not os.path.exists(path):
+        raise FileNotFoundError(f'File {path} not found')
     
-    groups = np.load(path)
+    groups = np.load(path, allow_pickle=True)
+    groups = np.vectorize(lambda x: np.argwhere(dataset_loader.users == x))(groups)
     logging.info(f'Groups with shape {groups.shape} loaded from {path}')
     
     # Load models
@@ -100,7 +111,7 @@ def main(args):
     
     elsa = ELSA(base_items, base_factors)
     optimizer = torch.optim.Adam(elsa.parameters())
-    Utils.load_checkpoint(elsa, optimizer, f'{base_artifact_path}/checkpoint.ckpt')
+    Utils.load_checkpoint(elsa, optimizer, f'{base_artifact_path}/checkpoint.ckpt', device)
     elsa.to(device)
     elsa.eval()
     logging.info(f'ELSA model loaded from {base_artifact_path}')
@@ -113,7 +124,7 @@ def main(args):
         raise ValueError(f'Model {sae_params["model"]} not supported. Check typos.')
     
     sae_optimizer = torch.optim.Adam(sae.parameters())
-    Utils.load_checkpoint(sae, sae_optimizer, f'{sae_artifact_path}/checkpoint.ckpt')
+    Utils.load_checkpoint(sae, sae_optimizer, f'{sae_artifact_path}/checkpoint.ckpt', device)
     sae.to(device)
     sae.eval()
     
@@ -122,7 +133,7 @@ def main(args):
     # Start analysis
     logging.info('Starting group analysis')
     
-    mlflow.set_experiment(f'GEI_{args.dataset}_{args.group_type}_{args.group_size}')
+    mlflow.set_experiment(f'GEI_{args.dataset}_{args.group_type}_{args.group_size}_{args.user_set}')
     mlflow.set_experiment_tags({
         'dataset': args.dataset,
         'task': 'intersection_analysis',

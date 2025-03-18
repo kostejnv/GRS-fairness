@@ -166,7 +166,7 @@ class Utils:
         torch.save(checkpoint, filepath)
         
     @staticmethod
-    def load_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, filepath: str) -> None:
-        checkpoint = torch.load(filepath, weights_only=True)
+    def load_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, filepath: str, device) -> None:
+        checkpoint = torch.load(filepath, weights_only=True, map_location=str(device))
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
