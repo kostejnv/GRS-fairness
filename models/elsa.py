@@ -47,9 +47,13 @@ class ELSA(nn.Module):
         return losses
 
     @torch.no_grad()
-    def recommend(self, interaction_batch: torch.Tensor, k: int, mask_interactions: bool = True) -> tuple[torch.Tensor, torch.Tensor]:
+    def recommend(self, interaction_batch: torch.Tensor, k: int | None, mask_interactions: bool = True, mask: torch.Tensor|None = None) -> tuple[torch.Tensor, torch.Tensor]:
         scores = self(interaction_batch)
+        if k is None:
+            k = scores.shape[-1]
         if mask_interactions:
-            scores = torch.where(interaction_batch != 0, 0, scores)  # mask input interactions
+            if mask is None:
+                mask = interaction_batch != 0
+            scores = torch.where(mask, 0, scores)
         topk_scores, topk_indices = torch.topk(scores, k)
         return topk_scores.cpu().numpy(), topk_indices.cpu().numpy()
