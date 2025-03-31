@@ -10,7 +10,7 @@ class GRSGroupRecommender(BaseGroupRecommender):
         self.elsa = elsa
         self.agregator = agregator
         
-    def recommend_for_group(self, group_input_interactions: torch.Tensor, group_target_interactions: torch.Tensor, k: int | None, mask: torch.Tensor | None=None) -> np.ndarray:
+    def recommend_for_group(self, group_input_interactions: torch.Tensor, k: int | None, mask: torch.Tensor | None) -> np.ndarray:
         scores, idxs = self.elsa.recommend(group_input_interactions, None, mask = mask)
         if k is None:
             k = scores.shape[-1]

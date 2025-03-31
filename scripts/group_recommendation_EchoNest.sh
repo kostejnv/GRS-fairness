@@ -7,7 +7,7 @@ sae_run_ids=(
     # 'c829c0df33b04158aec242c7daa94c38'
     # '4f4793e0c5fa4045a2f01c8c6a59a49d'
     # '7dcdc7663adf47f5bb9b06aca5fca746'
-    # 'e08194a6a2434b5785f688ac82827aed'
+    'e08194a6a2434b5785f688ac82827aed'
     # '2b5970af37bf4172afdfad5c8df11101'
     # '77fc5ef2506d4f33aba10554f47d6a46'
 )
@@ -29,7 +29,7 @@ do
     do
         for sae_run_id in "${sae_run_ids[@]}"
         do
-            python recommend_for_groups.py --dataset EchoNest --sae_run_id "$sae_run_id" --use_base_model_from_sae --recommender_strategy SAE --SAE_fusion_strategy max --group_type "$group_type" --group_size 3 --user_set "$user_type"
+            python recommend_for_groups.py --dataset EchoNest --sae_run_id "$sae_run_id" --use_base_model_from_sae --recommender_strategy SAE --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type"
         done
     done
 done
