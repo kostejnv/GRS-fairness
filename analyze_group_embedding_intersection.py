@@ -133,15 +133,13 @@ def main(args):
     # Start analysis
     logging.info('Starting group analysis')
     
-    mlflow.set_experiment(f'GEI_{args.dataset}_{args.group_type}_{args.group_size}_{args.user_set}')
+    mlflow.set_experiment(f'GEI_{args.dataset}')
     mlflow.set_experiment_tags({
         'dataset': args.dataset,
         'task': 'intersection_analysis',
-        'group_type': args.group_type,
-        'group_size': args.group_size,
-        'mlflow.note.content': f'This experiments analyzes the intersection of group embeddings for {args.group_type} groups of size {args.group_size} in the {args.dataset} dataset.'
+        'mlflow.note.content': f'This experiments analyzes the intersection of group embeddings in the {args.dataset} dataset.'
     })
-    run_name = f'{args.sae_model}_{args.embedding_dim}_{args.top_k}'
+    run_name = f'{args.sae_model[:3]}_{args.group_type}_{args.group_size}_{args.embedding_dim}_{args.top_k}_{TIMESTAMP}'
     
     with mlflow.start_run(run_name=run_name) as run:
         mlflow.log_params(vars(args))

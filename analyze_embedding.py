@@ -32,7 +32,7 @@ def parse_arguments():
     parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     parser.add_argument("--sae_run_id", type=str, help="Run ID of the analyzed SAE model")
     parser.add_argument("--user_set", type=str, default='full', help="User set to analyze (full, test, train)")
-    parser.add_argument("--user_sample", type=int, default=10_000, help="Number of users to sample")
+    parser.add_argument("--user_sample", type=int, default=5_000, help="Number of users to sample")
     # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
@@ -83,6 +83,12 @@ def main(args):
         csr_interactions = dataset_loader.test_csr
     else:
         raise ValueError(f'User set {args.user_set} not supported. Check typo.')
+    
+    # sample users
+    if args.user_sample > 0:
+        sample_users = random.sample(range(csr_interactions.shape[0]), args.user_sample)
+        csr_interactions = csr_interactions[sample_users, :]
+        logging.info(f'Sampled {args.user_sample} users')
 
     interactions_batches = DataLoader(csr_interactions, batch_size=1024, device=device, shuffle=False)
 
@@ -119,7 +125,7 @@ def main(args):
     # Start analysis
     logging.info('Starting embedding analysis')
     
-    mlflow.set_experiment(f'EA_{args.dataset}_{args.user_set}')
+    mlflow.set_experiment(f'EA_{args.dataset}')
     mlflow.set_experiment_tags({
         'dataset': args.dataset,
         'task': 'embedding_analysis',
@@ -136,22 +142,31 @@ def main(args):
         for batch in tqdm.tqdm(interactions_batches, desc='Creating user embeddings'):
             batch_embeddings = sae.encode(elsa.encode(batch))[0]
             batches_embeddings.append(batch_embeddings.detach().to('cpu'))
-        user_embeddings = torch.cat(batches_embeddings)
+        user_embeddings_with_zeros = torch.cat(batches_embeddings)
         
         # filter all zero values
-        user_embeddings_tmp = user_embeddings.numpy().tolist()
+        user_embeddings_tmp = user_embeddings_with_zeros.numpy().tolist()
         user_embeddings_tmp = [[x for x in row if x != 0] for row in user_embeddings_tmp]
         for row in user_embeddings_tmp:
             row.extend([0.0] * (int(args.top_k) - len(row)))
         user_embeddings = torch.tensor(user_embeddings_tmp, device=device)
         
+        
+        dead_neurons = torch.sum(torch.sum(user_embeddings_with_zeros, dim=0) == 0).item()
         max_embedding = torch.max(user_embeddings, dim=1).values
         min_embedding = torch.min(user_embeddings, dim=1).values
         mean_embedding = torch.mean(user_embeddings, dim=1)
         std_embedding = torch.std(user_embeddings, dim=1)
         median_embedding = torch.median(user_embeddings, dim=1).values
         
+        # for plotting
+        feature_activation = torch.sum(user_embeddings_with_zeros != 0, dim=0) / user_embeddings.shape[0]
+        sum_embeddings = torch.sum(user_embeddings, dim=1)
+        
         mlflow.log_metrics({
+            'dead_neurons/count': int(dead_neurons),
+            'dead_neurons/ratio': float(dead_neurons) / args.embedding_dim,
+            
             'max_embedding/max': float(torch.max(max_embedding)),
             'max_embedding/min': float(torch.min(max_embedding)),
             'max_embedding/mean': float(torch.mean(max_embedding)),
@@ -187,13 +202,25 @@ def main(args):
         # plot histograms
         fig = go.Figure()
         fig.add_trace(go.Histogram(x=user_embeddings.flatten().to('cpu').detach().numpy()))
-        fig.update_layout(title_text='User Embedding All Value Histogram', xaxis_title='Value', yaxis_title='Frequency')
+        fig.update_layout(title_text='All Value Histogram', xaxis_title='Value', yaxis_title='Frequency')
         mlflow.log_figure(fig, 'all_values_histogram.html')
         
         fig = go.Figure()
         fig.add_trace(go.Histogram(x=max_embedding.to('cpu').detach().numpy()))
-        fig.update_layout(title_text='User Embedding Max Value Histogram', xaxis_title='Value', yaxis_title='Frequency')
+        fig.update_layout(title_text='Max Value Histogram', xaxis_title='Value', yaxis_title='Frequency')
         mlflow.log_figure(fig, 'max_values_histogram.html')
+        
+        # embedding sum histogram
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(x=sum_embeddings.to('cpu').detach().numpy()))
+        fig.update_layout(title_text='Embedding Sum Histogram', xaxis_title='Value', yaxis_title='Frequency')
+        mlflow.log_figure(fig, 'embedding_sum_histogram.html')
+        
+        # feature activation histogram
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(x=feature_activation.to('cpu').detach().numpy()))
+        fig.update_layout(title_text='Feature Activation Histogram', xaxis_title='Value', yaxis_title='Frequency')
+        mlflow.log_figure(fig, 'feature_activation_histogram.html')
         
 
 if __name__ == '__main__':

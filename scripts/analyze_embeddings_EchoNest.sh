@@ -14,5 +14,6 @@ sae_run_ids=(
 
 for sae_run_id in "${sae_run_ids[@]}"
 do
-    python analyze_embedding.py --dataset EchoNest --sae_run_id "$sae_run_id" --user_set test
+    python analyze_embedding.py --dataset EchoNest --sae_run_id "$sae_run_id" --user_set test --user_sample 10000
+    python analyze_embedding.py --dataset EchoNest --sae_run_id "$sae_run_id" --user_set train --user_sample 10000
 done

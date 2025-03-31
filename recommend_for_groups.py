@@ -37,7 +37,7 @@ def parse_arguments():
     parser.add_argument("--base_run_id", type=str, default='a54d3546cd884e2a99e5792c80844aab', help="Run ID of the base model if not using SAE base model")
     
     # Recommender parameters
-    parser.add_argument("--recommender_strategy", type=str, default='LMS', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
+    parser.add_argument("--recommender_strategy", type=str, default='ADD', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
     parser.add_argument("--SAE_fusion_strategy", type=str, help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
     
     # group parameters
@@ -97,12 +97,18 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
             recommendations = group_recommender.recommend_for_group(inputs, targets, args.k, mask)
             recommendations = torch.tensor(recommendations, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
             recalls.append(Utils.evaluate_recall_at_k_from_top_indices(recommendations, targets, args.k).mean())
-            ndcgs.append(Utils.evaluate_ndcg_at_k_from_top_indices(recommendations, targets, args.k).mean())
+            ndcgs.append(Utils.evaluate_ndcg_at_k_from_top_indices(recommendations, targets, args.k))
+        ndcgs_means = [np.mean(ndcgs[i]) for i in range(len(ndcgs))]
+        ndcgs_mins = [np.min(ndcgs[i]) for i in range(len(ndcgs))]
+        ndcgs_maxs = [np.max(ndcgs[i]) for i in range(len(ndcgs))]
         mlflow.log_metrics({
             f'R{args.k}/mean': float(np.mean(recalls)),
             f'R{args.k}/std': float(np.std(recalls)),
-            f'NDCG{args.k}/mean': float(np.mean(ndcgs)),
-            f'NDCG{args.k}/std': float(np.std(ndcgs))
+            f'NDCG{args.k}/mean': float(np.mean(ndcgs_means)),
+            f'NDCG{args.k}/std': float(np.std(ndcgs_means)),
+            f'NDCG{args.k}/min': float(np.mean(ndcgs_mins)),
+            f'NDCG{args.k}/max': float(np.mean(ndcgs_maxs)),
+            f'NDCG{args.k}/min:max': float(np.mean(ndcgs_mins) / np.mean(ndcgs_maxs)),
         })
         
 
@@ -134,13 +140,14 @@ def main(args):
     if args.recommender_strategy == 'SAE':
         raise NotImplementedError('SAE strategy not implemented yet')
         assert args.SAE_fusion_strategy in SAE_FUSION_STRATEGIES, 'SAE fusion strategy not supported'
+        assert args.sae_run_id is not None, 'SAE run ID is required'
     
     
         # load sae model
         sae_run = mlflow.get_run(args.sae_run_id)
         sae_params = sae_run.data.params
         
-        assert sae_params['dataset'] == args.dataset, 'Base model dataset does not match current dataset'
+        assert sae_params['dataset'] == args.dataset, 'SAE model dataset does not match current dataset'
         
         # log parameters
         args.embedding_dim = int(sae_params['embedding_dim'])
@@ -164,9 +171,16 @@ def main(args):
             sae = TopKSAE(base_factors, sae_embedding_dim, sae_reconstruction_loss, l1_coef=sae_l1_coef, k=sae_top_k).to(device)
         else:
             raise ValueError(f'Model {sae_params["model"]} not supported. Check typos.')
+        
+        sae_optimizer = torch.optim.Adam(sae.parameters())
+        Utils.load_checkpoint(sae, sae_optimizer, f'{sae_artifact_path}/checkpoint.ckpt', device)
+        sae.to(device)
+        sae.eval()
+        logging.info(f'SAE model loaded from {sae_artifact_path}')
 
         
     # load base model
+    assert args.base_run_id or (args.use_base_model_from_sae and args.sae_run_id is not None), 'Base model run ID is required'
     base_model_id = args.base_run_id if not args.use_base_model_from_sae else sae_params['base_run_id']
     base_model_run = mlflow.get_run(base_model_id)
     base_model_params = base_model_run.data.params
@@ -186,11 +200,6 @@ def main(args):
     logging.info(f'ELSA model loaded from {base_artifact_path}')
 
     if args.recommender_strategy == 'SAE':
-        sae_optimizer = torch.optim.Adam(sae.parameters())
-        Utils.load_checkpoint(sae, sae_optimizer, f'{sae_artifact_path}/checkpoint.ckpt', device)
-        sae.to(device)
-        sae.eval()
-        logging.info(f'SAE model loaded from {sae_artifact_path}')
         group_recommender = ... # TODO: Implement SAE group recommender
     else: # other strategies
         aggregator = AggregationStrategy.getAggregator(args.recommender_strategy)
