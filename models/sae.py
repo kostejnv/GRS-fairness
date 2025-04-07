@@ -16,6 +16,9 @@ class SAE(nn.Module):
         self.encoder_b = nn.Parameter(torch.zeros(embedding_dim))
         self.decoder_w = nn.Parameter(nn.init.kaiming_uniform_(torch.empty([embedding_dim, input_dim])))
         self.decoder_b = nn.Parameter(torch.zeros(input_dim))
+        
+        # use transpose encoder as decoder to eliminate dead neurons
+        self.decoder_w.data = self.encoder_w.t().data
         self.normalize_decoder()
 
     @abstractmethod

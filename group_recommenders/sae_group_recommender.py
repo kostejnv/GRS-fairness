@@ -18,9 +18,9 @@ class SaeGroupRecommender(BaseGroupRecommender):
         group_mask = mask[0]
         dense_embedding = self.elsa.encode(group_input_interactions)
         sparse_embedding, _, x_mean, x_std = self.sae.encode(dense_embedding)
-        sparse_group_embedding = self.fusion_strategy.fuse(sparse_embedding)
+        sparse_group_embedding = self.fusion_strategy.normalized_fuse(sparse_embedding)
         dense_group_embedding = self.sae.decode(sparse_group_embedding, torch.mean(x_mean, dim=0), torch.mean(x_std, dim=0))
-        scores = torch.nn.ReLU()(self.elsa.decode(dense_group_embedding) - group_mask.float())
+        scores = self.elsa.decode(dense_group_embedding) - group_mask.float()
         scores = torch.where(group_mask, 0, scores)
         if k is None:
             k = scores.shape[-1]

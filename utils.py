@@ -54,7 +54,7 @@ class Utils:
         recall = []
         for input_batch, target_batch in zip(inputs, targets):
             _, topk_indices = model.recommend(input_batch, k, mask_interactions=True)
-            recall.append(Utils._recall_at_k_batch(topk_indices, target_batch, k))
+            recall.append(Utils._recall_at_k_batch(torch.tensor(topk_indices).to(target_batch.device), target_batch, k))
         return torch.cat(recall).detach().cpu().numpy()
     
     @staticmethod
@@ -86,7 +86,7 @@ class Utils:
         ndcg = []
         for input_batch, target_batch in zip(inputs, targets):
             _, topk_indices = model.recommend(input_batch, k, mask_interactions=True)
-            ndcg.append(Utils.ndcg_at_k(topk_indices, target_batch, k))
+            ndcg.append(Utils.ndcg_at_k(torch.tensor(topk_indices).to(target_batch.device), target_batch, k))
         return torch.cat(ndcg).detach().cpu().numpy()
     
     @staticmethod
@@ -172,6 +172,17 @@ class Utils:
                 dead_neurons = np.arange(input_batch.shape[1])
             dead_neurons = np.intersect1d(dead_neurons, np.where((e != 0).sum(0).detach().cpu().numpy() == 0)[0])
         return len(dead_neurons)
+    
+    @staticmethod
+    def evaluate_least_misery(recommendations: np.ndarray, user_rank: np.ndarray) -> np.ndarray:
+        least_misery = []
+        for rec in recommendations:
+            ranks = []
+            for i in range(user_rank.shape[0]):
+                ranks.append(np.where(user_rank[i] == rec)[0][0] + 1)
+            ranks = np.array(ranks)
+            least_misery.append(np.max(ranks))
+        return np.array(least_misery)
         
         
     @staticmethod

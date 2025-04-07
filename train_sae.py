@@ -36,7 +36,7 @@ def parse_arguments():
     parser.add_argument("--base_run_id", type=str, help="Run ID of the base model")
     parser.add_argument("--sample_users", action='store_true', help="Choose randomly 0.5 - 1.0 of the users interactions")
     # stable parameters
-    parser.add_argument('--lr', type=float, default=3e-4, help='Learning rate for training')
+    parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate for training')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
@@ -73,13 +73,6 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
         train_interaction_dataloader = DataLoader(train_csr, batch_size, device, shuffle=False)
         valid_interaction_dataloader = DataLoader(valid_csr, batch_size, device, shuffle=False)
         
-        train_user_embeddings = np.vstack(
-            [
-                base_model.encode(batch).detach().cpu().numpy()
-                for batch in tqdm(train_interaction_dataloader, desc="Computing user embeddings from train interactions")
-            ]
-        )
-        
         val_user_embeddings = np.vstack(
             [
                 base_model.encode(batch).detach().cpu().numpy()
@@ -87,7 +80,6 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             ]
         )
         
-        train_embeddings_dataloader = DataLoader(train_user_embeddings, batch_size, device, shuffle=True)
         valid_embeddings_dataloader = DataLoader(val_user_embeddings, batch_size, device, shuffle=False)
         
         if early_stop > 0:
@@ -101,14 +93,15 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             train_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}
             model.train()
             
-            pbar = tqdm(train_embeddings_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
+            pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
             for batch in pbar: # train one batch
                 if args.sample_users:
                     ratio = random.uniform(0.5, 1.0)
                     mask = torch.rand_like(batch) < ratio
                     batch = batch * mask
                 
-                losses = model.train_step(optimizer, batch)
+                embedding = base_model.encode(batch).detach()
+                losses = model.train_step(optimizer, embedding)
                 pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
                 
                 for key, val in train_losses.items():

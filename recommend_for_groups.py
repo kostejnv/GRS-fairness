@@ -32,16 +32,16 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     # model parameters
-    parser.add_argument("--sae_run_id", type=str, default='b3ab3fa715d84660a35ce428348216dc', help="Run ID of the analyzed SAE model")
+    parser.add_argument("--sae_run_id", type=str, default='548ebfc2219148f28695eda707ca4566', help="Run ID of the analyzed SAE model")
     parser.add_argument("--use_base_model_from_sae", action='store_true', help="Use base model from SAE run")
     parser.add_argument("--base_run_id", type=str, default='a54d3546cd884e2a99e5792c80844aab', help="Run ID of the base model if not using SAE base model")
     
     # Recommender parameters
-    parser.add_argument("--recommender_strategy", type=str, default='ELSA', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
-    parser.add_argument("--SAE_fusion_strategy", type=str, default='average', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
+    parser.add_argument("--recommender_strategy", type=str, default='SAE', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
+    parser.add_argument("--SAE_fusion_strategy", type=str, default='topk', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
     
     # group parameters
-    parser.add_argument("--group_type", type=str, default='sim', help="Type of group to analyze. Options: 'sim', 'div', '21'")
+    parser.add_argument("--group_type", type=str, default='div', help="Type of group to analyze. Options: 'sim', 'div', '21'")
     parser.add_argument("--group_size", type=int, default=3, help="Size of the group to analyze")
     parser.add_argument("--user_set", type=str, default='train', help="User set from which the groups where sampled (full, test, train)")
     # stable parameters
@@ -85,7 +85,7 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
         
     with mlflow.start_run(run_name=run_name):
         mlflow.log_params(vars(args))
-        ndcgs, recalls = [], []
+        ndcgs, recalls, least_misery = [], [], []
         for group in tqdm(groups, desc='Group Recommending', total=len(groups)):
             group_interactions = interactions[group]
             inputs, targets = Utils.split_input_target_interactions(group_interactions, args.target_ratio, args.seed)
@@ -95,6 +95,10 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
             targets = targets * (~mask)
             recommendations = group_recommender.recommend_for_group(inputs, args.k, mask)
             recommendations = torch.tensor(recommendations, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
+            
+            _, user_rank = elsa.recommend(inputs, None, mask=mask)
+            
+            least_misery.append(Utils.evaluate_least_misery(recommendations.detach().cpu().numpy()[0], user_rank).mean())
             recalls.append(Utils.evaluate_recall_at_k_from_top_indices(recommendations, targets, args.k).mean())
             ndcgs.append(Utils.evaluate_ndcg_at_k_from_top_indices(recommendations, targets, args.k))
         ndcgs_means = [np.mean(ndcgs[i]) for i in range(len(ndcgs))]
@@ -108,6 +112,8 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
             f'NDCG{args.k}/min': float(np.mean(ndcgs_mins)),
             f'NDCG{args.k}/max': float(np.mean(ndcgs_maxs)),
             f'NDCG{args.k}/min:max': float(np.mean(ndcgs_mins) / np.mean(ndcgs_maxs)),
+            f'least_misery/mean': float(np.mean(least_misery)),
+            f'least_misery/std': float(np.std(least_misery)),
         })
         
 
@@ -198,11 +204,12 @@ def main(args):
     logging.info(f'ELSA model loaded from {base_artifact_path}')
 
     if args.recommender_strategy == 'SAE':
-        fusion_strategy = FusionStrategy.get_fusion_strategy(FusionStrategyType(args.SAE_fusion_strategy))
+        fusion_strategy = FusionStrategy.get_fusion_strategy(FusionStrategyType(args.SAE_fusion_strategy), k = int(args.top_k))
         group_recommender = SaeGroupRecommender(elsa, sae, fusion_strategy)
     elif args.recommender_strategy == 'ELSA':
         group_recommender = ElsaGroupRecommender(elsa, FusionStrategy.get_fusion_strategy(FusionStrategyType(args.SAE_fusion_strategy)))
     else: # other strategies
+        args.SAE_fusion_strategy = None
         aggregator = AggregationStrategy.getAggregator(args.recommender_strategy)
         group_recommender = GRSGroupRecommender(elsa, aggregator)
     
