@@ -49,6 +49,40 @@ class Utils:
         return r
     
     @staticmethod
+    def rel_ndcg_at_k(batch_topk_indices: np.ndarray, batch_rel_scores: np.ndarray, k: int) -> np.ndarray:
+        """
+        Compute nDCG@k for a batch of predictions.
+
+        Parameters:
+        - batch_topk_indices: (batch_size, k) array of indices of top-k predicted items.
+        - batch_rel_scores: (batch_size, num_items) array of relevance scores.
+        - k: cutoff rank.
+
+        Returns:
+        - ndcg_scores: (batch_size,) array of nDCG scores.
+        """
+        # Get the actual relevance scores for the predicted top-k indices
+        batch_size = batch_topk_indices.shape[0]
+        topk_rels = np.take_along_axis(batch_rel_scores, batch_topk_indices, axis=1)
+
+        # Compute DCG@k
+        discounts = 1.0 / np.log2(np.arange(2, k + 2))
+        dcg = (topk_rels * discounts).sum(axis=1)
+
+        # Compute IDCG@k by sorting the true relevance scores
+        sorted_rels = np.sort(batch_rel_scores, axis=1)[:, ::-1][:, :k]
+        idcg = (sorted_rels * discounts).sum(axis=1)
+
+        # To avoid division by zero
+        idcg[idcg == 0.0] = 1e-10
+
+        # Compute nDCG@k
+        ndcg = dcg / idcg
+
+        return ndcg
+        
+    
+    @staticmethod
     # implementation from: https://github.com/matospiso/Disentangling-user-embeddings-using-SAE
     def evaluate_recall_at_k_from_elsa(model: ELSA, inputs: DataLoader, targets: DataLoader, k: int) -> np.ndarray:
         recall = []
@@ -174,15 +208,8 @@ class Utils:
         return len(dead_neurons)
     
     @staticmethod
-    def evaluate_least_misery(recommendations: np.ndarray, user_rank: np.ndarray) -> np.ndarray:
-        least_misery = []
-        for rec in recommendations:
-            ranks = []
-            for i in range(user_rank.shape[0]):
-                ranks.append(np.where(user_rank[i] == rec)[0][0] + 1)
-            ranks = np.array(ranks)
-            least_misery.append(np.max(ranks))
-        return np.array(least_misery)
+    def rel_score_per_item(recommendations: np.ndarray, user_relevance_scores: np.ndarray) -> np.ndarray:
+        return np.array([user_relevance_scores[:, rec] for rec in recommendations])
         
         
     @staticmethod

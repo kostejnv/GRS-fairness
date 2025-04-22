@@ -4,6 +4,7 @@ import sys
 import torch
 from datasets import EchoNestLoader, LastFm1kLoader, DataLoader
 from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE
+from popularity import Popularity
 import mlflow
 import numpy as np
 import random
@@ -14,7 +15,7 @@ from utils import Utils
 from copy import deepcopy
 from group_recommenders import BaseGroupRecommender
 import scipy.sparse as sp
-from group_recommenders import AggregationStrategy, GRSGroupRecommender, FusionStrategy, FusionStrategyType, SaeGroupRecommender, ElsaGroupRecommender
+from group_recommenders import AggregationStrategy, GRSGroupRecommender, FusionStrategy, FusionStrategyType, SaeGroupRecommender, ElsaAllInOneGroupRecommender, CombineFeaturesStrategy, CombineFeaturesStrategyType, ElsaGroupRecommender
 
 TIMESTAMP = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
@@ -30,20 +31,23 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     # model parameters
-    parser.add_argument("--sae_run_id", type=str, default='548ebfc2219148f28695eda707ca4566', help="Run ID of the analyzed SAE model")
+    parser.add_argument("--sae_run_id", type=str, default='7dcdc7663adf47f5bb9b06aca5fca746', help="Run ID of the analyzed SAE model")
     parser.add_argument("--use_base_model_from_sae", action='store_true', help="Use base model from SAE run")
-    parser.add_argument("--base_run_id", type=str, default='a54d3546cd884e2a99e5792c80844aab', help="Run ID of the base model if not using SAE base model")
+    parser.add_argument("--base_run_id", type=str, default='494195a6c97f49169010f64a3bfcdf2a', help="Run ID of the base model if not using SAE base model")
     
     # Recommender parameters
-    parser.add_argument("--recommender_strategy", type=str, default='SAE', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
-    parser.add_argument("--SAE_fusion_strategy", type=str, default='topk', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
+    parser.add_argument("--recommender_strategy", type=str, default='LMS', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
+    parser.add_argument("--SAE_fusion_strategy", type=str, default='average', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
+    parser.add_argument("--combine_features_strategy", type=str, default='none', help="Strategy to combinee features.")
+    parser.add_argument("--combine_features_percentile", type=float, default=0.95, help="Aplied only if combine_features_strategy is not 'percentile'. Percentile to use for combine features.")
+    parser.add_argument("--combine_features_topk", type=int, default=100, help="Aplied only if combine_features_strategy is 'topk'. combinee top_k features for each feature.")
     
     # group parameters
-    parser.add_argument("--group_type", type=str, default='div', help="Type of group to analyze. Options: 'sim', 'div', '21'")
+    parser.add_argument("--group_type", type=str, default='sim', help="Type of group to analyze. Options: 'sim', 'div', '21'")
     parser.add_argument("--group_size", type=int, default=3, help="Size of the group to analyze")
-    parser.add_argument("--user_set", type=str, default='train', help="User set from which the groups where sampled (full, test, train)")
+    parser.add_argument("--user_set", type=str, default='test', help="User set from which the groups where sampled (full, test, train)")
     # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
@@ -54,8 +58,9 @@ def parse_arguments():
     return parser.parse_args()
 
 GROUP_TYPES = ['sim', 'div', '21']
-RECOMMENDER_STRATEGIES = ['SAE', 'ADD', 'LMS', 'GFAR', 'EPFuzzDA', 'MPL', 'ELSA']
+RECOMMENDER_STRATEGIES = ['SAE', 'ADD', 'LMS', 'GFAR', 'EPFuzzDA', 'MPL', 'ELSA', 'ELSA_INT']
 SAE_FUSION_STRATEGIES = [strategy.value for strategy in FusionStrategyType]
+COMBINE_FEATURES_STRATEGIES = [strategy.value for strategy in CombineFeaturesStrategyType]
 GROUP_SIZES = [3]
 
 def get_groups_path(dataset, group_type, group_size, user_set):
@@ -67,7 +72,7 @@ def get_groups_path(dataset, group_type, group_size, user_set):
     elif group_type == '21':
         filename = f'opposing_2_1.npy'
     return path + filename
-
+    
 def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups, interactions: sp.csr_matrix):
     logging.info('Recommending for groups')
     
@@ -77,43 +82,80 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
         'Task': 'Group Recommending',
         'mlflow.note.content': f'This experiment was created to evaluate group recommending for {args.dataset} dataset'
     })
+    popularity = Popularity(interactions)
     
     if args.recommender_strategy == 'SAE':
         run_name = f'{args.group_type}_{args.group_size}_{args.recommender_strategy}_{args.SAE_fusion_strategy}_{args.top_k}_{args.embedding_dim}_{TIMESTAMP}'
     else:
         run_name = f'{args.group_type}_{args.group_size}_{args.recommender_strategy}_{TIMESTAMP}'
         
+    def normalize_rel_scores(rel_scores):
+        maxs = np.max(rel_scores, axis=-1, keepdims=True)
+        mins = np.min(rel_scores, axis=-1, keepdims=True)
+        rel_scores = (rel_scores - mins) / (maxs - mins)
+        return rel_scores
+        
     with mlflow.start_run(run_name=run_name):
         mlflow.log_params(vars(args))
-        ndcgs, recalls, least_misery = [], [], []
+        ndcgs = []
+        rel_scores_per_item = []
+        popularities = []
         for group in tqdm(groups, desc='Group Recommending', total=len(groups)):
             group_interactions = interactions[group]
             inputs, targets = Utils.split_input_target_interactions(group_interactions, args.target_ratio, args.seed)
-            inputs, targets = torch.tensor(inputs.toarray(), device=device), torch.tensor(targets.toarray(), device=device)
+            inputs = torch.tensor(inputs.toarray(), device=device)
             mask = (inputs.sum(axis=0).squeeze() != 0).unsqueeze(0).repeat(inputs.shape[0], 1)
-            # targets should be masked with negative mask
-            targets = targets * (~mask)
-            recommendations = group_recommender.recommend_for_group(inputs, args.k, mask)
-            recommendations = torch.tensor(recommendations, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
             
-            _, user_rank = elsa.recommend(inputs, None, mask=mask)
+            group_recommendations = group_recommender.recommend_for_group(inputs, args.k, mask)
             
-            least_misery.append(Utils.evaluate_least_misery(recommendations.detach().cpu().numpy()[0], user_rank).mean())
-            recalls.append(Utils.evaluate_recall_at_k_from_top_indices(recommendations, targets, args.k).mean())
-            ndcgs.append(Utils.evaluate_ndcg_at_k_from_top_indices(recommendations, targets, args.k))
-        ndcgs_means = [np.mean(ndcgs[i]) for i in range(len(ndcgs))]
-        ndcgs_mins = [np.min(ndcgs[i]) for i in range(len(ndcgs))]
-        ndcgs_maxs = [np.max(ndcgs[i]) for i in range(len(ndcgs))]
+            user_rel_scores, user_idxs = elsa.recommend(inputs, None, mask=mask)
+            additional_interactions_idx = user_idxs[:, :2000]
+            rows = np.arange(additional_interactions_idx.shape[0])[:, None]  # shape (3, 1)
+            targets = targets.toarray()
+            targets[rows, additional_interactions_idx] = 1
+            targets = torch.tensor(targets, device=device)
+            
+            
+            # ttt = np.ones_like(user_rel_scores) / np.log2(np.arange(user_rel_scores.shape[1]) + 2)
+            # min_value = 1 / np.log2(np.count_nonzero(user_rel_scores, axis=-1) + 2)
+            # min_value_exp = min_value[:, np.newaxis]
+            # user_rel_scores = np.where(ttt < min_value_exp, min_value_exp, ttt)
+            
+            sorted_user_idxs = np.argsort(user_idxs, axis=-1)
+            rows = np.arange(user_idxs.shape[0])[:, None]
+            user_rel_scores = normalize_rel_scores(user_rel_scores[rows, sorted_user_idxs])
+            
+            
+            
+            #TODO: vymyslet evaluacni metody
+            rel_score_per_item = Utils.rel_score_per_item(group_recommendations, user_rel_scores)
+            # ndcg = Utils.rel_ndcg_at_k(np.tile(group_recommendations, (3, 1)), user_rel_scores, args.k)
+            
+            recommendations = torch.tensor(group_recommendations, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
+            ndcg = Utils.evaluate_ndcg_at_k_from_top_indices(torch.tensor(recommendations, device=device), torch.tensor(targets, device=device), args.k)
+            popularities.append(popularity.popularity_score(group_recommendations))
+            
+            rel_scores_per_item.append(rel_score_per_item)
+            ndcgs.append(ndcg)
+
+        ndcgs_means = np.mean(ndcgs, axis=1)
+        ndcgs_mins = np.min(ndcgs, axis=1)
+        ndcgs_maxs = np.max(ndcgs, axis=1)
+        rel_scores_per_item_means = np.mean(rel_scores_per_item, axis=1)
+        rel_scores_per_item_mins = np.min(rel_scores_per_item, axis=1)
+        rel_scores_per_item_maxs = np.max(rel_scores_per_item, axis=1)
+        popularities_means = np.mean(popularities, axis=1)
+        
         mlflow.log_metrics({
-            f'R{args.k}/mean': float(np.mean(recalls)),
-            f'R{args.k}/std': float(np.std(recalls)),
-            f'NDCG{args.k}/mean': float(np.mean(ndcgs_means)),
+            f'NDCG{args.k}/mean': float(np.median(ndcgs_means)),
             f'NDCG{args.k}/std': float(np.std(ndcgs_means)),
-            f'NDCG{args.k}/min': float(np.mean(ndcgs_mins)),
-            f'NDCG{args.k}/max': float(np.mean(ndcgs_maxs)),
-            f'NDCG{args.k}/min:max': float(np.mean(ndcgs_mins) / np.mean(ndcgs_maxs)),
-            f'least_misery/mean': float(np.mean(least_misery)),
-            f'least_misery/std': float(np.std(least_misery)),
+            f'NDCG{args.k}/min': float(np.median(ndcgs_mins)),
+            f'NDCG{args.k}/max': float(np.median(ndcgs_maxs)),
+            f'NDCG{args.k}/min:mean': float(np.median(ndcgs_mins/ndcgs_means)),
+            f'ScorPerItem/mean': float(np.median(rel_scores_per_item_means)),
+            f'ScorPerItem/min': float(np.median(rel_scores_per_item_mins)),
+            f'ScorPerItem/min:mean': float(np.median(rel_scores_per_item_mins/rel_scores_per_item_means)),
+            f'Popularity/mean': float(np.median(popularities_means)),
         })
         
 
@@ -144,6 +186,7 @@ def main(args):
     # everythin what is needed for SAE
     if args.recommender_strategy == 'SAE':
         assert args.SAE_fusion_strategy in SAE_FUSION_STRATEGIES, f'Fusion strategy {args.SAE_fusion_strategy} not supported'
+        assert args.combine_features_strategy in COMBINE_FEATURES_STRATEGIES, f'Combine features strategy {args.combine_features_strategy} not supported'
         assert args.sae_run_id is not None, 'SAE run ID is required'
     
     
@@ -168,11 +211,31 @@ def main(args):
         sae_l1_coef = float(sae_params['l1_coef'])
         sae_top_k = int(sae_params['top_k'])
         base_factors = int(sae_params['base_factors'])
+        sae_topk_aux = int(sae_params.get('topk_aux', 0))
+        sae_n_batches_to_dead = int(sae_params.get('n_batches_to_dead', 0))
+        sae_normalize = bool(sae_params.get('normalize', False))
+        sae_auxiliary_coef = float(sae_params.get('auxiliary_coef', 0))
+        sae_contrastive_coef = float(sae_params.get('contrastive_coef', 0))
+        sae_reconstruction_coef = float(sae_params.get('reconstruction_coef', 1))
         
+        cfg = {
+            'reconstruction_loss': sae_reconstruction_loss,
+            "input_dim": base_factors,
+            "embedding_dim": sae_embedding_dim,
+            "l1_coef": sae_l1_coef,
+            "k": sae_top_k,
+            "device": device,
+            "topk_aux": sae_topk_aux,
+            "n_batches_to_dead": sae_n_batches_to_dead,
+            "normalize": sae_normalize,
+            "auxiliary_coef": sae_auxiliary_coef,
+            "contrastive_coef": sae_contrastive_coef,
+            "reconstruction_coef": sae_reconstruction_coef,
+        }
         if sae_params['model'] == 'BasicSAE':
-            sae = BasicSAE(base_factors, sae_embedding_dim, sae_reconstruction_loss, l1_coef=sae_l1_coef).to(device)
+            sae = BasicSAE(base_factors, sae_embedding_dim, cfg).to(device)
         elif sae_params['model'] == 'TopKSAE':
-            sae = TopKSAE(base_factors, sae_embedding_dim, sae_reconstruction_loss, l1_coef=sae_l1_coef, k=sae_top_k).to(device)
+            sae = TopKSAE(base_factors, sae_embedding_dim, cfg).to(device)
         else:
             raise ValueError(f'Model {sae_params["model"]} not supported. Check typos.')
         
@@ -204,10 +267,13 @@ def main(args):
     logging.info(f'ELSA model loaded from {base_artifact_path}')
 
     if args.recommender_strategy == 'SAE':
+        combine_features_strategy = CombineFeaturesStrategy.get_combine_features_strategy(CombineFeaturesStrategyType(args.combine_features_strategy), decoder=sae.decoder_w, percentile=args.combine_features_percentile, k=args.combine_features_topk)
         fusion_strategy = FusionStrategy.get_fusion_strategy(FusionStrategyType(args.SAE_fusion_strategy), k = int(args.top_k))
-        group_recommender = SaeGroupRecommender(elsa, sae, fusion_strategy)
+        group_recommender = SaeGroupRecommender(elsa, sae, fusion_strategy, combine_features_strategy)
     elif args.recommender_strategy == 'ELSA':
-        group_recommender = ElsaGroupRecommender(elsa, FusionStrategy.get_fusion_strategy(FusionStrategyType(args.SAE_fusion_strategy)))
+        group_recommender = ElsaGroupRecommender(elsa, FusionStrategy.get_fusion_strategy(FusionStrategyType('average')))
+    elif args.recommender_strategy == 'ELSA_INT':
+        group_recommender = ElsaAllInOneGroupRecommender(elsa)
     else: # other strategies
         args.SAE_fusion_strategy = None
         aggregator = AggregationStrategy.getAggregator(args.recommender_strategy)

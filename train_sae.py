@@ -44,6 +44,11 @@ def parse_arguments():
     parser.add_argument('--beta2', type=float, default=0.99, help='Beta2 for Adam optimizer')
     parser.add_argument('--model', type=str, default='TopKSAE', help='Model to use (BasicSAE, TopKSAE)')
     parser.add_argument("--reconstruction_loss", type=str, default="Cosine", help="Reconstruction loss (L2 or Cosine)")
+    parser.add_argument("--auxiliary_coef", type=float, default=1/32, help="Auxiliary loss coefficient (BasicSAE, TopKSAE)")
+    parser.add_argument("--contrastive_coef", type=float, default=0.3, help="Contrastive loss coefficient (BasicSAE, TopKSAE)")
+    parser.add_argument("--n_batches_to_dead", type=int, default=5, help="Number of batches to wait before optimizing the dead neurons (BasicSAE, TopKSAE)")
+    parser.add_argument("--normalize", action='store_true', help="Normalize the sparse embedding (BasicSAE, TopKSAE)")
+    parser.add_argument("--topk_aux", type=int, default=512, help="Top k for auxiliary loss (BasicSAE, TopKSAE)")
     parser.add_argument("--l1_coef", type=float, default=3e-4, help="L1 loss coefficient (BasicSAE, TopKSAE)")
     parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
     
@@ -72,20 +77,16 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
         
         train_interaction_dataloader = DataLoader(train_csr, batch_size, device, shuffle=False)
         valid_interaction_dataloader = DataLoader(valid_csr, batch_size, device, shuffle=False)
+
         
-        val_user_embeddings = np.vstack(
-            [
-                base_model.encode(batch).detach().cpu().numpy()
-                for batch in tqdm(valid_interaction_dataloader, desc="Computing user embeddings from train interactions")
-            ]
-        )
-        
-        valid_embeddings_dataloader = DataLoader(val_user_embeddings, batch_size, device, shuffle=False)
+        def sampled_interactions(batch, ratio = 0.8):
+            mask = torch.rand_like(batch) < ratio
+            return batch.clone() * mask
         
         if early_stop > 0:
             best_epoch = 0
             epochs_without_improvement = 0
-            best_sim = 0
+            best_sim = np.inf
             best_optimizer = deepcopy(optimizer)
             best_model = deepcopy(model)
         
@@ -95,13 +96,14 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             
             pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
             for batch in pbar: # train one batch
+                positive_batch = sampled_interactions(batch, ratio=0.7)
                 if args.sample_users:
-                    ratio = random.uniform(0.5, 1.0)
-                    mask = torch.rand_like(batch) < ratio
-                    batch = batch * mask
+                    batch = sampled_interactions(batch, ratio=0.5)
+                    
                 
                 embedding = base_model.encode(batch).detach()
-                losses = model.train_step(optimizer, embedding)
+                positive_embedding = base_model.encode(positive_batch).detach()
+                losses = model.train_step(optimizer, embedding, positive_embedding)
                 pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
                 
                 for key, val in train_losses.items():
@@ -113,9 +115,12 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             # Evaluate
             model.eval()
             # loss
-            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}
-            for batch in valid_embeddings_dataloader:
-                losses = model.compute_loss_dict(batch)
+            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": [], "Auxiliary": [], "Contrastive": []}
+            for batch in valid_interaction_dataloader:
+                positive_embedding = base_model.encode(sampled_interactions(batch)).detach()
+                embedding = base_model.encode(batch).detach()
+                
+                losses = model.compute_loss_dict(embedding, positive_embedding)
                 for key, val in losses.items():
                     valid_losses[key].append(val.item())
             for key, val in valid_losses.items():
@@ -126,11 +131,12 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             for key, val in valid_metrics.items():
                 mlflow.log_metric(f'{key}/valid', val, step=epoch)
             
-            logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}')
+            logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}, Contrastive: {float(np.mean(valid_losses["Contrastive"])):.4f}')
             
+            valid_loss = float(np.mean(valid_losses["Loss"]))
             if early_stop > 0:
-                if valid_metrics['CosineSim'] > best_sim:
-                    best_sim = valid_metrics['CosineSim']
+                if valid_loss < best_sim:
+                    best_sim = valid_loss
                     best_optimizer = deepcopy(optimizer)
                     best_model = deepcopy(model)
                     best_epoch = epoch
@@ -178,6 +184,7 @@ def main(args):
     args.base_users = int(base_params['users'])
     args.base_items = int(base_params['items'])
     args.expansion_ratio = args.embedding_dim / args.base_factors
+    args.reconstruction_coef = 1 - (args.auxiliary_coef + args.contrastive_coef + args.l1_coef)
     
     # Load dataset
     logging.info(f'Loading {args.dataset}')
@@ -207,10 +214,22 @@ def main(args):
     base_model.to(device)
     base_model.eval()
     
+    cfg = {
+        'reconstruction_loss': args.reconstruction_loss,
+        "topk_aux": args.topk_aux,
+        "n_batches_to_dead": args.n_batches_to_dead,
+        "l1_coef": args.l1_coef,
+        "k": args.top_k,
+        "device": device,
+        "normalize": args.normalize,
+        "auxiliary_coef": args.auxiliary_coef,
+        "contrastive_coef": args.contrastive_coef,
+        "reconstruction_coef": args.reconstruction_coef,
+    }
     if args.model == 'BasicSAE':
-        model = BasicSAE(args.base_factors, args.embedding_dim, args.reconstruction_loss, l1_coef=args.l1_coef).to(device)
+        model = BasicSAE(args.base_factors, args.embedding_dim, cfg).to(device)
     elif args.model == 'TopKSAE':
-        model = TopKSAE(args.base_factors, args.embedding_dim, args.reconstruction_loss, l1_coef=args.l1_coef, k=args.top_k).to(device)
+        model = TopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
     else:
         raise ValueError(f'Model {args.model} not supported. Check typos.')
 

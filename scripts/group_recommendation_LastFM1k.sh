@@ -1,15 +1,18 @@
 #!/bin/bash
 
 sae_run_ids=(
-    'c0e0c953b7394bbaabaac917a9274beb'
-    '5b045a645c794a51b0d28c317e3c1e4d'
-    '4ffd4c831f0343f3b96e1bf7ff27fb05'
-    'b1d64424a40740df844e914e1ed12568'
-    '75df48f60ec24ba68265c003781c3deb'
-    'c4e39f27c0964f5cae0f52f76cd46dd6'
-    '548ebfc2219148f28695eda707ca4566'
-    'b3ab3fa715d84660a35ce428348216dc'
-    'c1f21aa623cb4b838d296536b2cb5989'
+    # 'c0e0c953b7394bbaabaac917a9274beb'
+    # '5b045a645c794a51b0d28c317e3c1e4d'
+    # '4ffd4c831f0343f3b96e1bf7ff27fb05'
+    # 'b1d64424a40740df844e914e1ed12568'
+    # '75df48f60ec24ba68265c003781c3deb'
+    # 'c4e39f27c0964f5cae0f52f76cd46dd6'
+    # '548ebfc2219148f28695eda707ca4566'
+    # 'b3ab3fa715d84660a35ce428348216dc'
+    # 'c1f21aa623cb4b838d296536b2cb5989'
+    # '465d2e89ed6744a280b5376ad01493b1'
+    # 'c0a08df9b6c94d2499402dbba475397a'
+    7d04a448cf3c4f0988c6ea296b1cdce4
 )
 
 group_types=(
@@ -54,21 +57,21 @@ do
     done
 done
 
-for user_type in "${user_types[@]}"
-do
-    for group_type in "${group_types[@]}"
-    do
-        for recommender_strategy in "${recommender_strategies[@]}"
-        do
-            python recommend_for_groups.py --dataset LastFM1k --recommender_strategy "$recommender_strategy" --group_type "$group_type" --group_size 3 --user_set "$user_type"
-        done
-    done
-done
+# for user_type in "${user_types[@]}"
+# do
+#     for group_type in "${group_types[@]}"
+#     do
+#         for recommender_strategy in "${recommender_strategies[@]}"
+#         do
+#             python recommend_for_groups.py --dataset LastFM1k --recommender_strategy "$recommender_strategy" --group_type "$group_type" --group_size 3 --user_set "$user_type"
+#         done
+#     done
+# done
 
-for user_type in "${user_types[@]}"
-do
-    for group_type in "${group_types[@]}"
-    do
-        python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type"
-    done
-done
+# for user_type in "${user_types[@]}"
+# do
+#     for group_type in "${group_types[@]}"
+#     do
+#         python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type"
+#     done
+# done

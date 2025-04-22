@@ -14,10 +14,14 @@ class GRSGroupRecommender(BaseGroupRecommender):
         scores, idxs = self.elsa.recommend(group_input_interactions, None, mask = mask)
         if k is None:
             k = scores.shape[-1]
+        # get masked idxs as a list of idxs
+        mask_idxs = set(torch.nonzero(mask[0], as_tuple=True)[0])
         # create dataframe user, item, predicted_rating
         data = {'user': [], 'item': [], 'predicted_rating': []}
-        for i in range(scores.shape[0]):
-            for j in range(scores.shape[1]):
+        for j in range(scores.shape[1]):
+            if j in mask_idxs:
+                continue
+            for i in range(scores.shape[0]):
                 data['user'].append(i)
                 data['item'].append(idxs[i, j])
                 data['predicted_rating'].append(scores[i, j])

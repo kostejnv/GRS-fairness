@@ -10,6 +10,7 @@ class FusionStrategyType(Enum):
     SQUARE_AVERAGE = "square_average"
     TOPK_MEAN = "topk"
     MAX = "max"
+    MIN = "min"
     COMMON_FEATURES = "common_features"
     AT_LEAST_2_COMMON_FEATURES = "at_least_2_common_features"
     
@@ -29,6 +30,8 @@ class FusionStrategy(ABC):
             return TopKMeanFusionStrategy(**kwargs)
         elif name == FusionStrategyType.MAX:
             return MaxFusionStrategy()
+        elif name == FusionStrategyType.MIN:
+            return MinFusionStrategy()
         elif name == FusionStrategyType.COMMON_FEATURES:
             return CommonFeaturesFusionStrategy()
         elif name == FusionStrategyType.AT_LEAST_2_COMMON_FEATURES:
@@ -70,6 +73,10 @@ class SquareAverageFusionStrategy(FusionStrategy):
 class MaxFusionStrategy(FusionStrategy):
     def fuse(self, group_members_embeddings: torch.Tensor) -> torch.Tensor:
         return torch.max(group_members_embeddings, dim=0)[0]
+    
+class MinFusionStrategy(FusionStrategy):
+    def fuse(self, group_members_embeddings: torch.Tensor) -> torch.Tensor:
+        return torch.min(group_members_embeddings, dim=0)[0]
 
 class CommonFeaturesFusionStrategy(FusionStrategy):
     def fuse(self, group_members_embeddings: torch.Tensor) -> torch.Tensor:

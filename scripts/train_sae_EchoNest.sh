@@ -1,25 +1,36 @@
 #!/usr/bin/env bash
 
+
+
 # embedding_dim 2048
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 2048  --top_k 16 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
 
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 2048  --top_k 16
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 2048  --top_k 64 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
 
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 2048  --top_k 64
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 2048  --top_k 256 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
 
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 2048  --top_k 256
-
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 2048  --top_k 512
-
-# test withou sample users
-
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 2048  --top_k 256
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 2048  --top_k 512 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
 
 # embedding_dim 8192
 
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 8192  --top_k 16
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 8192  --top_k 16 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
 
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 8192  --top_k 64
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 8192  --top_k 64 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
 
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 8192  --top_k 256
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 8192  --top_k 256 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
 
-python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --sample_users --epochs 1000 --early_stop 100 --seed 42 --embedding_dim 8192  --top_k 512
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 8192  --top_k 512 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
+
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 8192  --top_k 1024 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
+
+# embedding_dim 16384
+
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 16384  --top_k 16 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
+
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 16384  --top_k 64 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
+
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 16384  --top_k 256 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
+
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 16384  --top_k 512 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
+
+python train_sae.py --dataset EchoNest --base_run_id 494195a6c97f49169010f64a3bfcdf2a --batch_size 1024 --epochs 10000 --early_stop 250 --seed 42 --embedding_dim 16384  --top_k 1024 --reconstruction_loss L2 --auxiliary_coef 0.03125 --contrastive_coef 0
