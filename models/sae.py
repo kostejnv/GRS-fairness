@@ -47,7 +47,7 @@ class SAE(nn.Module):
             "L1": e.abs().sum(-1).mean(),
             "L0": (e > 0).float().sum(-1).mean(),
             "Cosine": (1 - F.cosine_similarity(x, x_out, 1)).mean(),
-            "Auxiliary": self._auxiliary_loss(standardized_x, e_pre, e),
+            # "Auxiliary": self._auxiliary_loss(standardized_x, e_pre, e),
             # "Contrastive": self._contrastive_loss(e, e_positive),
         }
         losses["Loss"] = self.total_loss(losses)
@@ -97,8 +97,8 @@ class SAE(nn.Module):
         e = self.post_process_embedding(e_pre)
         if self.normalize:
             e = l2_normalize(e)
-        if self.training:
-            self._update_inactive_neurons(e)
+        # if self.training:
+            # self._update_inactive_neurons(e)
         return e, e_pre, x_mean, x_std, x
 
     def decode(self, e: torch.Tensor, x_mean: torch.Tensor, x_std: torch.Tensor) -> torch.Tensor:
@@ -151,8 +151,8 @@ class BasicSAE(SAE):
 
     def total_loss(self, partial_losses: dict) -> torch.Tensor:
         reconstruction_loss = partial_losses[self.reconstruction_loss] + self.cfg["l1_coef"] * partial_losses["L1"]
-        auxiliary_loss = partial_losses["Auxiliary"]
-        return reconstruction_loss + self.cfg["auxiliary_coef"] * auxiliary_loss
+        # auxiliary_loss = partial_losses["Auxiliary"]
+        return reconstruction_loss# + self.cfg["auxiliary_coef"] * auxiliary_loss
 
 
 class TopKSAE(SAE):
@@ -172,7 +172,7 @@ class TopKSAE(SAE):
         rec_coef, aux_coef, con_coef = self.cfg["reconstruction_coef"], self.cfg["auxiliary_coef"], self.cfg["contrastive_coef"]
         
         reconstruction_loss = rec_coef * partial_losses[self.reconstruction_loss] + self.l1_coef * partial_losses["L1"]
-        auxiliary_loss = aux_coef * partial_losses["Auxiliary"]
+        # auxiliary_loss = aux_coef * partial_losses["Auxiliary"]
         #contrastive_loss = con_coef * partial_losses["Contrastive"]
         
-        return reconstruction_loss + auxiliary_loss# + contrastive_loss
+        return reconstruction_loss# + auxiliary_loss# + contrastive_loss

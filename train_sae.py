@@ -96,13 +96,14 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             
             pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
             for batch in pbar: # train one batch
-                positive_batch = sampled_interactions(batch, ratio=0.7)
+                # positive_batch = sampled_interactions(batch, ratio=0.7)
                 if args.sample_users:
                     batch = sampled_interactions(batch, ratio=0.5)
                     
                 
                 embedding = base_model.encode(batch).detach()
-                positive_embedding = base_model.encode(positive_batch).detach()
+                # positive_embedding = base_model.encode(positive_batch).detach()
+                positive_embedding = None
                 losses = model.train_step(optimizer, embedding, positive_embedding)
                 pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
                 
@@ -115,7 +116,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             # Evaluate
             model.eval()
             # loss
-            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": [], "Auxiliary": []}#, "Contrastive": []}
+            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}#, "Auxiliary": []}#, "Contrastive": []}
             for batch in valid_interaction_dataloader:
                 positive_embedding = base_model.encode(sampled_interactions(batch)).detach()
                 embedding = base_model.encode(batch).detach()
