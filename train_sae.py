@@ -115,7 +115,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             # Evaluate
             model.eval()
             # loss
-            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": [], "Auxiliary": [], "Contrastive": []}
+            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": [], "Auxiliary": []}#, "Contrastive": []}
             for batch in valid_interaction_dataloader:
                 positive_embedding = base_model.encode(sampled_interactions(batch)).detach()
                 embedding = base_model.encode(batch).detach()
@@ -131,7 +131,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             for key, val in valid_metrics.items():
                 mlflow.log_metric(f'{key}/valid', val, step=epoch)
             
-            logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}, Contrastive: {float(np.mean(valid_losses["Contrastive"])):.4f}')
+            logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}')#, Contrastive: {float(np.mean(valid_losses["Contrastive"])):.4f}')
             
             valid_loss = float(np.mean(valid_losses["Loss"]))
             if early_stop > 0:

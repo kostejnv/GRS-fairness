@@ -48,14 +48,15 @@ class SAE(nn.Module):
             "L0": (e > 0).float().sum(-1).mean(),
             "Cosine": (1 - F.cosine_similarity(x, x_out, 1)).mean(),
             "Auxiliary": self._auxiliary_loss(standardized_x, e_pre, e),
-            "Contrastive": self._contrastive_loss(e, e_positive),
+            # "Contrastive": self._contrastive_loss(e, e_positive),
         }
         losses["Loss"] = self.total_loss(losses)
         return losses
     
     def compute_loss_dict(self, batch: torch.Tensor, positive_batch: torch.Tensor) -> dict[str, torch.Tensor]:
         out, e, e_pre, batch_mean, batch_std, standardized_batch = self(batch)
-        e_positive = self.encode(positive_batch)[0]
+        #e_positive = self.encode(positive_batch)[0]
+        e_positive = None
         return self._compute_loss_dict(batch, e_pre, e, out, standardized_batch, e_positive)
     
     def _auxiliary_loss(self, x: torch.Tensor, e_pre: torch.Tensor, e: torch.Tensor) -> torch.Tensor:
@@ -172,6 +173,6 @@ class TopKSAE(SAE):
         
         reconstruction_loss = rec_coef * partial_losses[self.reconstruction_loss] + self.l1_coef * partial_losses["L1"]
         auxiliary_loss = aux_coef * partial_losses["Auxiliary"]
-        contrastive_loss = con_coef * partial_losses["Contrastive"]
+        #contrastive_loss = con_coef * partial_losses["Contrastive"]
         
-        return reconstruction_loss + auxiliary_loss + contrastive_loss
+        return reconstruction_loss + auxiliary_loss# + contrastive_loss
