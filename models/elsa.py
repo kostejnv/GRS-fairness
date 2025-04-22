@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from typing import Optional
 
 
 def l2_normalize(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
@@ -47,7 +48,7 @@ class ELSA(nn.Module):
         return losses
 
     @torch.no_grad()
-    def recommend(self, interaction_batch: torch.Tensor, k: int | None, mask_interactions: bool = True, mask: torch.Tensor|None = None) -> tuple[torch.Tensor, torch.Tensor]:
+    def recommend(self, interaction_batch: torch.Tensor, k: Optional[int], mask_interactions: bool = True, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
         scores = self.decode(self.encode(interaction_batch)) - interaction_batch
         scores = self._normalize_relevance_scores(scores)
         if k is None:

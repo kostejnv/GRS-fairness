@@ -4,13 +4,14 @@ from models import ELSA
 import torch
 import numpy as np
 import pandas as pd
+from typing import Optional
 
 class GRSGroupRecommender(BaseGroupRecommender):
     def __init__(self, elsa: ELSA, agregator: AggregationStrategy):
         self.elsa = elsa
         self.agregator = agregator
         
-    def recommend_for_group(self, group_input_interactions: torch.Tensor, k: int | None, mask: torch.Tensor | None) -> np.ndarray:
+    def recommend_for_group(self, group_input_interactions: torch.Tensor, k: Optional[int], mask: Optional[torch.Tensor]) -> np.ndarray:
         scores, idxs = self.elsa.recommend(group_input_interactions, None, mask = mask)
         if k is None:
             k = scores.shape[-1]

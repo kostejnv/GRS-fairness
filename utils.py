@@ -5,6 +5,7 @@ import scipy.sparse as sp
 from datasets import DataLoader
 from models import ELSA, SAE, ELSAWithSAE
 import os
+from typing import Optional
 
 class Utils:
     @staticmethod
@@ -92,7 +93,7 @@ class Utils:
         return torch.cat(recall).detach().cpu().numpy()
     
     @staticmethod
-    def evaluate_recall_at_k_from_top_indices(top_indices: np.ndarray, target_batch: torch.Tensor, k: int | None) -> np.ndarray:
+    def evaluate_recall_at_k_from_top_indices(top_indices: np.ndarray, target_batch: torch.Tensor, k: Optional[int]) -> np.ndarray:
         if k is None:
             k = top_indices.shape[-1]
         return Utils._recall_at_k_batch(top_indices, target_batch, k).detach().cpu().numpy()
@@ -124,7 +125,7 @@ class Utils:
         return torch.cat(ndcg).detach().cpu().numpy()
     
     @staticmethod
-    def evaluate_ndcg_at_k_from_top_indices(top_indices: np.ndarray, target_batch: torch.Tensor, k: int | None) -> np.ndarray:
+    def evaluate_ndcg_at_k_from_top_indices(top_indices: np.ndarray, target_batch: torch.Tensor, k: Optional[int]) -> np.ndarray:
         ndcg = []
         if k is None:
             k = top_indices.shape[-1]
