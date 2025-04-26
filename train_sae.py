@@ -72,43 +72,80 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
     else:
         run_name = f'{args.model}_{args.embedding_dim}_{TIMESTAMP}'
 
+    def sampled_interactions(batch, ratio = 0.8):
+        mask = torch.rand_like(batch) < ratio
+        return batch.clone() * mask
+    
     with mlflow.start_run(run_name=run_name) as run:
         mlflow.log_params(vars(args))
         
         train_interaction_dataloader = DataLoader(train_csr, batch_size, device, shuffle=False)
         valid_interaction_dataloader = DataLoader(valid_csr, batch_size, device, shuffle=False)
+        
+        train_user_embeddings = np.vstack(
+            [
+                base_model.encode(batch).detach().cpu().numpy()
+                for batch in tqdm(train_interaction_dataloader, desc="Computing user embeddings from train interactions")
+            ]
+        )
+        train_embeddings_dataloader = DataLoader(train_user_embeddings, batch_size, device, shuffle=True)
+        
+        val_user_embeddings = np.vstack(
+            [
+                base_model.encode(sampled_interactions(batch)).detach().cpu().numpy()
+                for batch in tqdm(valid_interaction_dataloader, desc="Computing user embeddings from train interactions")
+            ]
+        )
+        valid_embeddings_dataloader = DataLoader(val_user_embeddings, batch_size, device, shuffle=False)
+        
+        
+        val_positive_user_embeddings = np.vstack(
+            [
+                base_model.encode(sampled_interactions(batch)).detach().cpu().numpy()
+                for batch in tqdm(valid_interaction_dataloader, desc="Computing augumentation of user embeddings from train interactions")
+            ]
+        )
+        val_positive_embeddings_dataloader = DataLoader(val_positive_user_embeddings, batch_size, device, shuffle=False)
+        
+        val_user_embeddings = torch.tensor(val_user_embeddings, device=device)
 
-        
-        def sampled_interactions(batch, ratio = 0.8):
-            mask = torch.rand_like(batch) < ratio
-            return batch.clone() * mask
-        
         if early_stop > 0:
             best_epoch = 0
             epochs_without_improvement = 0
             best_sim = np.inf
             best_optimizer = deepcopy(optimizer)
             best_model = deepcopy(model)
+            
+        are_interactions_needed = args.sample_users or args.contrastive_coef > 0
         
         for epoch in range(1, nr_epochs+1):
             train_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}
             model.train()
             
-            pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
+            if are_interactions_needed:
+                pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
+            else:
+                pbar = tqdm(train_embeddings_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
+
             for batch in pbar: # train one batch
-                # positive_batch = sampled_interactions(batch, ratio=0.7)
+                # positive_batch = sampled_interactions(batch, ratio=0.7) if args.contrastive_coef > 0 else None
+                if args.contrastive_coef > 0:
+                    positive_batch = sampled_interactions(batch, ratio=0.5)
+                    positive_batch = base_model.encode(positive_batch).detach()
+                else:
+                    positive_batch = None
+
                 if args.sample_users:
-                    batch = sampled_interactions(batch, ratio=0.5)
-                    
+                    batch = sampled_interactions(batch)
+                if are_interactions_needed:
+                    batch = base_model.encode(batch).detach()
                 
-                embedding = base_model.encode(batch).detach()
-                # positive_embedding = base_model.encode(positive_batch).detach()
-                positive_embedding = None
-                losses = model.train_step(optimizer, embedding, positive_embedding)
+                    
+                losses = model.train_step(optimizer, batch, positive_batch)
                 pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
                 
                 for key, val in train_losses.items():
-                    val.append(losses[key].item())                    
+                    val.append(losses[key].item())
                 
             for key, val in train_losses.items():
                 mlflow.log_metric(f'loss/{key}/train', float(np.mean(val)), step=epoch)
@@ -116,11 +153,8 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             # Evaluate
             model.eval()
             # loss
-            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}#, "Auxiliary": []}#, "Contrastive": []}
-            for batch in valid_interaction_dataloader:
-                positive_embedding = base_model.encode(sampled_interactions(batch)).detach()
-                embedding = base_model.encode(batch).detach()
-                
+            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": [], "Auxiliary": [], "Contrastive": []}
+            for embedding, positive_embedding in zip(valid_embeddings_dataloader, val_positive_embeddings_dataloader):
                 losses = model.compute_loss_dict(embedding, positive_embedding)
                 for key, val in losses.items():
                     valid_losses[key].append(val.item())
@@ -132,10 +166,11 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             for key, val in valid_metrics.items():
                 mlflow.log_metric(f'{key}/valid', val, step=epoch)
             
-            logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}')#, Contrastive: {float(np.mean(valid_losses["Contrastive"])):.4f}')
+            logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}, Contrastive: {float(np.mean(valid_losses["Contrastive"])):.4f}')
             
+            early_stop_each = 5
             valid_loss = float(np.mean(valid_losses["Loss"]))
-            if early_stop > 0:
+            if early_stop > 0 and epoch % early_stop_each == 0:
                 if valid_loss < best_sim:
                     best_sim = valid_loss
                     best_optimizer = deepcopy(optimizer)
@@ -143,7 +178,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
                     best_epoch = epoch
                     epochs_without_improvement = 0
                 else:
-                    epochs_without_improvement += 1
+                    epochs_without_improvement += early_stop_each
                     if epochs_without_improvement >= early_stop:
                         logging.info(f'Early stopping at epoch {epoch}')
                         break

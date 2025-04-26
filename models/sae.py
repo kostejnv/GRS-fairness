@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from typing import Optional
 
 def l2_normalize(x: torch.Tensor, dim: int = -1) -> torch.Tensor:
     return x / x.norm(dim=dim, keepdim=True)
@@ -41,22 +42,21 @@ class SAE(nn.Module):
     def total_loss(self, partial_losses: dict) -> torch.Tensor:
         raise NotImplementedError
 
-    def _compute_loss_dict(self, x: torch.Tensor, e_pre: torch.Tensor, e: torch.Tensor, x_out: torch.Tensor, standardized_x: torch.Tensor, e_positive: torch.Tensor) -> dict[str, torch.Tensor]:
+    def _compute_loss_dict(self, x: torch.Tensor, e_pre: torch.Tensor, e: torch.Tensor, x_out: torch.Tensor, standardized_x: torch.Tensor, e_positive: Optional[torch.Tensor]) -> dict[str, torch.Tensor]:
         losses = {
             "L2": (x_out - x).pow(2).mean(),
             "L1": e.abs().sum(-1).mean(),
             "L0": (e > 0).float().sum(-1).mean(),
             "Cosine": (1 - F.cosine_similarity(x, x_out, 1)).mean(),
-            # "Auxiliary": self._auxiliary_loss(standardized_x, e_pre, e),
-            # "Contrastive": self._contrastive_loss(e, e_positive),
+            "Auxiliary": self._auxiliary_loss(standardized_x, e_pre, e),
+            "Contrastive": self._contrastive_loss(e, e_positive) if e_positive is not None else torch.zeros(1, device=x.device),
         }
         losses["Loss"] = self.total_loss(losses)
         return losses
     
     def compute_loss_dict(self, batch: torch.Tensor, positive_batch: torch.Tensor) -> dict[str, torch.Tensor]:
         out, e, e_pre, batch_mean, batch_std, standardized_batch = self(batch)
-        #e_positive = self.encode(positive_batch)[0]
-        e_positive = None
+        e_positive = self.encode(positive_batch)[0] if positive_batch is not None else None
         return self._compute_loss_dict(batch, e_pre, e, out, standardized_batch, e_positive)
     
     def _auxiliary_loss(self, x: torch.Tensor, e_pre: torch.Tensor, e: torch.Tensor) -> torch.Tensor:
@@ -97,8 +97,8 @@ class SAE(nn.Module):
         e = self.post_process_embedding(e_pre)
         if self.normalize:
             e = l2_normalize(e)
-        # if self.training:
-            # self._update_inactive_neurons(e)
+        if self.training:
+            self._update_inactive_neurons(e)
         return e, e_pre, x_mean, x_std, x
 
     def decode(self, e: torch.Tensor, x_mean: torch.Tensor, x_std: torch.Tensor) -> torch.Tensor:
@@ -126,7 +126,8 @@ class SAE(nn.Module):
     def destandardize_output(self, out: torch.Tensor, x_mean: torch.Tensor, x_std: torch.Tensor) -> torch.Tensor:
         return x_mean + out * x_std
 
-    def train_step(self, optimizer: optim.Optimizer, batch: torch.Tensor, positive_batch: torch.Tensor) -> dict[str, torch.Tensor]:
+    def train_step(self, optimizer: optim.Optimizer, batch: torch.Tensor, positive_batch: Optional[torch.Tensor]) -> dict[str, torch.Tensor]:
+        self.train()
         losses = self.compute_loss_dict(batch, positive_batch)
         optimizer.zero_grad()
         losses["Loss"].backward()
@@ -151,8 +152,8 @@ class BasicSAE(SAE):
 
     def total_loss(self, partial_losses: dict) -> torch.Tensor:
         reconstruction_loss = partial_losses[self.reconstruction_loss] + self.cfg["l1_coef"] * partial_losses["L1"]
-        # auxiliary_loss = partial_losses["Auxiliary"]
-        return reconstruction_loss# + self.cfg["auxiliary_coef"] * auxiliary_loss
+        auxiliary_loss = partial_losses["Auxiliary"]
+        return reconstruction_loss + self.cfg["auxiliary_coef"] * auxiliary_loss
 
 
 class TopKSAE(SAE):
@@ -172,7 +173,7 @@ class TopKSAE(SAE):
         rec_coef, aux_coef, con_coef = self.cfg["reconstruction_coef"], self.cfg["auxiliary_coef"], self.cfg["contrastive_coef"]
         
         reconstruction_loss = rec_coef * partial_losses[self.reconstruction_loss] + self.l1_coef * partial_losses["L1"]
-        # auxiliary_loss = aux_coef * partial_losses["Auxiliary"]
-        #contrastive_loss = con_coef * partial_losses["Contrastive"]
+        auxiliary_loss = aux_coef * partial_losses["Auxiliary"]
+        contrastive_loss = con_coef * partial_losses["Contrastive"]
         
-        return reconstruction_loss# + auxiliary_loss# + contrastive_loss
+        return reconstruction_loss + auxiliary_loss + contrastive_loss

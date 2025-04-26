@@ -147,8 +147,9 @@ class Utils:
     def evaluate_sparse_encoder(base_model:ELSA, sae_model:SAE, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device, seed: int = 42) -> dict[str, float]:
         inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio, seed)
         inputs = DataLoader(inputs, batch_size, device, shuffle=False)
-        targets = DataLoader(targets, batch_size, device, shuffle=False)
+        targets = torch.tensor(targets.todense(), device=device)
         full = DataLoader(split_csr, batch_size, device, shuffle=False)
+
         
         fused_model = ELSAWithSAE(base_model, sae_model)
         
@@ -156,57 +157,53 @@ class Utils:
         sae_model.eval()
         fused_model.eval()
         
-        input_embeddings = np.vstack([base_model.encode(batch).detach().cpu().numpy() for batch in full])
-        input_embeddings = DataLoader(input_embeddings, batch_size, device, shuffle=False)
         
-        cosines = Utils().evaluate_cosine_similarity(sae_model, input_embeddings)
-        l0s = Utils().evaluate_l0(sae_model, input_embeddings)
-        dead_neurons = Utils().evaluate_dead_neurons(sae_model, input_embeddings)
-        recalls = Utils().evaluate_recall_at_k_from_elsa(base_model, inputs, targets, k=20)
-        recalls_with_sae = Utils().evaluate_recall_at_k_from_elsa(fused_model, inputs, targets, k=20)
+        
+        embeddings = np.vstack([base_model.encode(batch).detach().cpu().numpy() for batch in full])
+        embeddings_dataloader = DataLoader(embeddings, batch_size, device, shuffle=False)
+        
+        embeddings = torch.tensor(embeddings, device=device)
+        reconstructed_embeddings = torch.tensor(np.vstack([sae_model(batch)[0].detach().cpu().numpy() for batch in embeddings_dataloader]), device=device)
+        sparse_embeddings = torch.tensor(np.vstack([sae_model.encode(batch)[0].detach().cpu().numpy() for batch in embeddings_dataloader]), device=device)
+        
+        elsa_recommendations = torch.tensor(np.vstack([base_model.recommend(batch, 20, mask_interactions=True)[1] for batch in inputs]), device=device)
+        sae_recommendations = torch.tensor(np.vstack([fused_model.recommend(batch, 20, mask_interactions=True)[1] for batch in inputs]), device=device)
+        
+        cosines = Utils().evaluate_cosine_similarity(embeddings, reconstructed_embeddings)
+        l0s = Utils().evaluate_l0(sparse_embeddings)
+        dead_neurons = Utils().evaluate_dead_neurons(sparse_embeddings)
+        recalls = np.mean(Utils()._recall_at_k_batch(elsa_recommendations, targets, 20).cpu().numpy())
+        recalls_with_sae = np.mean(Utils()._recall_at_k_batch(sae_recommendations, targets, 20).cpu().numpy())
         recall_degradations = recalls_with_sae - recalls
-        ndcgs = Utils().evaluate_ndcg_at_k_from_elsa(base_model, inputs, targets, k=20)
-        ndcgs_with_sae = Utils().evaluate_ndcg_at_k_from_elsa(fused_model, inputs, targets, k=20)
+        ndcgs = np.mean(Utils().ndcg_at_k(elsa_recommendations, targets, 20).cpu().numpy())
+        ndcgs_with_sae = np.mean(Utils().ndcg_at_k(sae_recommendations, targets, 20).cpu().numpy())
         ndcg_degradations = ndcgs_with_sae - ndcgs
+
         
         return {
             'CosineSim': float(np.mean(cosines)),
             'L0': float(np.mean(l0s)),
             'DeadNeurons': dead_neurons / sae_model.encoder_w.shape[1],
-            'R20': float(np.mean(recalls_with_sae)),
-            'R20_Degradation': float(np.mean(recall_degradations)),
-            'NDCG20': float(np.mean(ndcgs_with_sae)),
-            'NDCG20_Degradation': float(np.mean(ndcg_degradations))
+            'R20': float(recalls_with_sae),
+            'R20_Degradation': float(recall_degradations),
+            'NDCG20': float(ndcgs_with_sae),
+            'NDCG20_Degradation': float(ndcg_degradations)
         }
         
         
         
     @staticmethod
-    def evaluate_cosine_similarity(model, inputs: DataLoader) -> np.ndarray:
-        cosine = []
-        for input_batch in inputs:
-            output_batch = model(input_batch)[0]
-            cosine.append(torch.nn.functional.cosine_similarity(input_batch, output_batch, 1))
-        return torch.cat(cosine).detach().cpu().numpy()
+    def evaluate_cosine_similarity(embeddings: torch.Tensor, reconstructed_embeddings: torch.Tensor) -> np.ndarray:
+        return torch.nn.functional.cosine_similarity(embeddings, reconstructed_embeddings, dim=1).detach().cpu().numpy()
 
 
     @staticmethod
-    def evaluate_l0(model, inputs: DataLoader) -> np.ndarray:
-        l0s = []
-        for input_batch in inputs:
-            e = model.encode(input_batch)[0]
-            l0s.append((e > 0).float().sum(-1))
-        return torch.cat(l0s).detach().cpu().numpy()
+    def evaluate_l0(sparse_embeddings: torch.Tensor) -> np.ndarray:
+        return (sparse_embeddings > 0).float().sum(-1).detach().cpu().numpy()
 
     @staticmethod
-    def evaluate_dead_neurons(model, inputs: DataLoader) -> int:
-        dead_neurons = None
-        for input_batch in inputs:
-            e = model.encode(input_batch)[0]
-            if dead_neurons is None:
-                dead_neurons = np.arange(input_batch.shape[1])
-            dead_neurons = np.intersect1d(dead_neurons, np.where((e != 0).sum(0).detach().cpu().numpy() == 0)[0])
-        return len(dead_neurons)
+    def evaluate_dead_neurons(sparse_embeddings: torch.Tensor) -> int:
+        return int((sparse_embeddings.sum(0) == 0).sum().detach().cpu().numpy())
     
     @staticmethod
     def rel_score_per_item(recommendations: np.ndarray, user_relevance_scores: np.ndarray) -> np.ndarray:
