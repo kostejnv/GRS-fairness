@@ -51,6 +51,7 @@ def parse_arguments():
     parser.add_argument("--topk_aux", type=int, default=512, help="Top k for auxiliary loss (BasicSAE, TopKSAE)")
     parser.add_argument("--l1_coef", type=float, default=3e-4, help="L1 loss coefficient (BasicSAE, TopKSAE)")
     parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
+    parser.add_argument('--evaluate_every', type=int, default=10, help='Evaluate every n epochs')
     
     return parser.parse_args()
 
@@ -146,42 +147,42 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
                 
                 for key, val in train_losses.items():
                     val.append(losses[key].item())
-                
-            for key, val in train_losses.items():
-                mlflow.log_metric(f'loss/{key}/train', float(np.mean(val)), step=epoch)
-                
-            # Evaluate
-            model.eval()
-            # loss
-            valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": [], "Auxiliary": [], "Contrastive": []}
-            for embedding, positive_embedding in zip(valid_embeddings_dataloader, val_positive_embeddings_dataloader):
-                losses = model.compute_loss_dict(embedding, positive_embedding)
-                for key, val in losses.items():
-                    valid_losses[key].append(val.item())
-            for key, val in valid_losses.items():
-                mlflow.log_metric(f'loss/{key}/valid', float(np.mean(val)), step=epoch)
-                
-            # metrics
-            valid_metrics = Utils.evaluate_sparse_encoder(base_model, model, valid_csr, args.target_ratio, batch_size, device, seed=args.seed+epoch)
-            for key, val in valid_metrics.items():
-                mlflow.log_metric(f'{key}/valid', val, step=epoch)
             
-            logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}, Contrastive: {float(np.mean(valid_losses["Contrastive"])):.4f}')
-            
-            early_stop_each = 5
-            valid_loss = float(np.mean(valid_losses["Loss"]))
-            if early_stop > 0 and epoch % early_stop_each == 0:
-                if valid_loss < best_sim:
-                    best_sim = valid_loss
-                    best_optimizer = deepcopy(optimizer)
-                    best_model = deepcopy(model)
-                    best_epoch = epoch
-                    epochs_without_improvement = 0
-                else:
-                    epochs_without_improvement += early_stop_each
-                    if epochs_without_improvement >= early_stop:
-                        logging.info(f'Early stopping at epoch {epoch}')
-                        break
+            if epoch % args.evaluate_every == 0:
+                for key, val in train_losses.items():
+                    mlflow.log_metric(f'loss/{key}/train', float(np.mean(val)), step=epoch)
+                    
+                # Evaluate
+                model.eval()
+                # loss
+                valid_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": [], "Auxiliary": [], "Contrastive": []}
+                for embedding, positive_embedding in zip(valid_embeddings_dataloader, val_positive_embeddings_dataloader):
+                    losses = model.compute_loss_dict(embedding, positive_embedding)
+                    for key, val in losses.items():
+                        valid_losses[key].append(val.item())
+                for key, val in valid_losses.items():
+                    mlflow.log_metric(f'loss/{key}/valid', float(np.mean(val)), step=epoch)
+                    
+                # metrics
+                valid_metrics = Utils.evaluate_sparse_encoder(base_model, model, valid_csr, args.target_ratio, batch_size, device, seed=args.seed+epoch)
+                for key, val in valid_metrics.items():
+                    mlflow.log_metric(f'{key}/valid', val, step=epoch)
+                
+                logging.info(f'Valid metrics - Loss: {float(np.mean(valid_losses["Loss"])):.4f} - Cosine: {valid_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {valid_metrics["NDCG20_Degradation"]:.4f}, Contrastive: {float(np.mean(valid_losses["Contrastive"])):.4f}')
+                
+                valid_loss = float(np.mean(valid_losses["Loss"]))
+                if early_stop > 0:
+                    if valid_loss < best_sim:
+                        best_sim = valid_loss
+                        best_optimizer = deepcopy(optimizer)
+                        best_model = deepcopy(model)
+                        best_epoch = epoch
+                        epochs_without_improvement = 0
+                    else:
+                        if epochs_without_improvement >= early_stop:
+                            logging.info(f'Early stopping at epoch {epoch}')
+                            break
+            epochs_without_improvement += 1
         if early_stop > 0:
             logging.info(f'Loading best model from epoch {best_epoch}')
             model = best_model
