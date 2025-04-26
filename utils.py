@@ -147,7 +147,7 @@ class Utils:
     def evaluate_sparse_encoder(base_model:ELSA, sae_model:SAE, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device, seed: int = 42) -> dict[str, float]:
         inputs, targets = Utils.split_input_target_interactions(split_csr, target_ratio, seed)
         inputs = DataLoader(inputs, batch_size, device, shuffle=False)
-        targets = torch.tensor(targets.todense(), device=device)
+        targets = DataLoader(targets, batch_size, device, shuffle=False)
         full = DataLoader(split_csr, batch_size, device, shuffle=False)
 
         
@@ -166,17 +166,19 @@ class Utils:
         reconstructed_embeddings = torch.tensor(np.vstack([sae_model(batch)[0].detach().cpu().numpy() for batch in embeddings_dataloader]), device=device)
         sparse_embeddings = torch.tensor(np.vstack([sae_model.encode(batch)[0].detach().cpu().numpy() for batch in embeddings_dataloader]), device=device)
         
-        elsa_recommendations = torch.tensor(np.vstack([base_model.recommend(batch, 20, mask_interactions=True)[1] for batch in inputs]), device=device)
-        sae_recommendations = torch.tensor(np.vstack([fused_model.recommend(batch, 20, mask_interactions=True)[1] for batch in inputs]), device=device)
+        elsa_recommendations = np.vstack([base_model.recommend(batch, 20, mask_interactions=True)[1] for batch in inputs])
+        elsa_rec_dataloader = DataLoader(elsa_recommendations, batch_size, device, shuffle=False)
+        sae_recommendations = np.vstack([fused_model.recommend(batch, 20, mask_interactions=True)[1] for batch in inputs])
+        sae_rec_dataloader = DataLoader(sae_recommendations, batch_size, device, shuffle=False)
         
         cosines = Utils().evaluate_cosine_similarity(embeddings, reconstructed_embeddings)
         l0s = Utils().evaluate_l0(sparse_embeddings)
         dead_neurons = Utils().evaluate_dead_neurons(sparse_embeddings)
-        recalls = np.mean(Utils()._recall_at_k_batch(elsa_recommendations, targets, 20).cpu().numpy())
-        recalls_with_sae = np.mean(Utils()._recall_at_k_batch(sae_recommendations, targets, 20).cpu().numpy())
+        recalls = np.mean(np.concatenate([Utils()._recall_at_k_batch(recs, targs, 20).cpu().numpy() for recs, targs in zip(elsa_rec_dataloader, targets)]))
+        recalls_with_sae = np.mean(np.concatenate([Utils()._recall_at_k_batch(recs, targs, 20).cpu().numpy() for recs, targs in zip(sae_rec_dataloader, targets)]))
         recall_degradations = recalls_with_sae - recalls
-        ndcgs = np.mean(Utils().ndcg_at_k(elsa_recommendations, targets, 20).cpu().numpy())
-        ndcgs_with_sae = np.mean(Utils().ndcg_at_k(sae_recommendations, targets, 20).cpu().numpy())
+        ndcgs = np.mean(np.concatenate([Utils().ndcg_at_k(recs, targs, 20).cpu().numpy() for recs, targs in zip(elsa_rec_dataloader, targets)]))
+        ndcgs_with_sae = np.mean(np.concatenate([Utils().ndcg_at_k(recs, targs, 20).cpu().numpy() for recs, targs in zip(sae_rec_dataloader, targets)]))
         ndcg_degradations = ndcgs_with_sae - ndcgs
 
         
