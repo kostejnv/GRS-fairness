@@ -188,6 +188,7 @@ class Utils:
             'DeadNeurons': dead_neurons / sae_model.encoder_w.shape[1],
             'R20': float(recalls_with_sae),
             'R20_Degradation': float(recall_degradations),
+            'NDCG20_base': float(ndcgs),
             'NDCG20': float(ndcgs_with_sae),
             'NDCG20_Degradation': float(ndcg_degradations)
         }
@@ -210,7 +211,25 @@ class Utils:
     @staticmethod
     def rel_score_per_item(recommendations: np.ndarray, user_relevance_scores: np.ndarray) -> np.ndarray:
         return np.array([user_relevance_scores[:, rec] for rec in recommendations])
+    
+    @staticmethod
+    def recommendations_similarity(recommendations: np.ndarray, elsa: ELSA):
+        # Extract item embeddings for the recommended items
+        item_embeddings = elsa.encoder[recommendations]
         
+        # Compute pairwise cosine similarity
+        pairwise_cosine_sim = torch.nn.functional.cosine_similarity(
+            item_embeddings.unsqueeze(1), item_embeddings.unsqueeze(0), dim=-1
+        )
+        
+        # Exclude self-similarity by setting diagonal to 0
+        pairwise_cosine_sim.fill_diagonal_(0)
+        
+        # Exclude diagonal from mean calculation
+        num_elements = pairwise_cosine_sim.numel() - pairwise_cosine_sim.shape[0]
+        mean_cosine_similarity = pairwise_cosine_sim.sum().item() / num_elements
+        
+        return float(mean_cosine_similarity)
         
     @staticmethod
     def save_checkpoint(model: torch.nn.Module, optimizer: torch.optim.Optimizer, filepath: str) -> None:

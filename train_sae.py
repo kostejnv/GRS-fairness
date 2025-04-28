@@ -175,7 +175,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
                     mlflow.log_metric(f'loss/{key}/valid', float(np.mean(val)), step=epoch)
                     
                 # metrics
-                valid_metrics = Utils.evaluate_sparse_encoder(base_model, model, valid_csr, args.target_ratio, batch_size, device, seed=args.seed+epoch)
+                valid_metrics = Utils.evaluate_sparse_encoder(base_model, model, valid_csr, args.target_ratio, batch_size, device, seed=args.seed)
                 for key, val in valid_metrics.items():
                     mlflow.log_metric(f'{key}/valid', val, step=epoch)
                 
@@ -209,8 +209,32 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
         Utils.save_checkpoint(model, optimizer, temp_path)
         mlflow.log_artifact(temp_path)
         mlflow.log_artifact('models/sae.py')
-        os.remove(temp_path)
+        # os.remove(temp_path)
         logging.info('Model successfully saved')
+        
+        cfg = {
+            'reconstruction_loss': args.reconstruction_loss,
+            "topk_aux": args.topk_aux,
+            "n_batches_to_dead": args.n_batches_to_dead,
+            "l1_coef": args.l1_coef,
+            "k": args.top_k,
+            "device": device,
+            "normalize": args.normalize,
+            "auxiliary_coef": args.auxiliary_coef,
+            "contrastive_coef": args.contrastive_coef,
+            "reconstruction_coef": args.reconstruction_coef,
+        }
+        
+        model = TopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
+        optimizer = torch.optim.Adam(model.parameters())
+        Utils.load_checkpoint(model, optimizer, temp_path, device)
+        
+        test_metrics = Utils.evaluate_sparse_encoder(base_model, model, test_csr, args.target_ratio, batch_size, device, seed=args.seed)
+        for key, val in test_metrics.items():
+            mlflow.log_metric(f'{key}/test', val, step=epoch)
+        logging.info(f'Test metrics - Cosine: {test_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {test_metrics["NDCG20_Degradation"]:.4f}')
+        print(test_metrics)
+        print(model.encoder_b)
                 
 def main(args):
     Utils.set_seed(args.seed)
@@ -255,6 +279,7 @@ def main(args):
     train_csr = dataset_loader.train_csr
     valid_csr = dataset_loader.valid_csr
     test_csr = dataset_loader.test_csr
+    print(test_csr.sum())
     
     base_model = ELSA(args.base_items, args.base_factors)
     base_optimizer = torch.optim.Adam(base_model.parameters())

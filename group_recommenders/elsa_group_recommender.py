@@ -18,7 +18,7 @@ class ElsaGroupRecommender(BaseGroupRecommender):
         group_mask = mask[0]
         dense_embedding = self.elsa.encode(group_input_interactions)
         dense_group_embedding = self.fusion_strategy.fuse(dense_embedding)
-        scores = torch.nn.ReLU()(self.elsa.decode(dense_group_embedding) - group_mask.float())
+        scores = self.elsa.decode(dense_group_embedding) - group_mask.float()
         scores = torch.where(group_mask, 0, scores)
         if k is None:
             k = scores.shape[-1]
