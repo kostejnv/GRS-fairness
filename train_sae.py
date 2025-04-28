@@ -60,6 +60,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
     nr_epochs = args.epochs
     batch_size = args.batch_size
     early_stop = args.early_stop
+    evaluate_every = args.evaluate_every
     
     mlflow.set_experiment(f'Sparse_{dataset}')
     mlflow.set_experiment_tags({
@@ -109,7 +110,41 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
         val_positive_embeddings_dataloader = DataLoader(val_positive_user_embeddings, batch_size, device, shuffle=False)
         
         val_user_embeddings = torch.tensor(val_user_embeddings, device=device)
-
+        
+        def train_epoch_from_interactions():
+            train_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}
+            model.train()
+            
+            pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
+            for batched_interactions in pbar: # train one batch
+                if args.contrastive_coef > 0:
+                    positive_batch = sampled_interactions(batched_interactions)
+                    positive_batch = base_model.encode(positive_batch).detach()
+                else:
+                    positive_batch = None
+                if args.sample_users:
+                    batched_interactions = sampled_interactions(batched_interactions)
+                    
+                embedding_batch = base_model.encode(batched_interactions).detach()
+                
+                losses = model.train_step(optimizer, embedding_batch, positive_batch)
+                pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
+                for key, val in train_losses.items():
+                    val.append(losses[key].item())
+            return train_losses
+                    
+        def train_epoch_from_embeddings(): # faster but cannot use contrastive loss or sample users
+            train_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}
+            model.train()
+            pbar = tqdm(train_embeddings_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
+            for batched_embeddings in pbar:
+                losses = model.train_step(optimizer, batched_embeddings, None)
+                pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
+                for key, val in train_losses.items():
+                    val.append(losses[key].item())
+                    
+            return train_losses
+                    
         if early_stop > 0:
             best_epoch = 0
             epochs_without_improvement = 0
@@ -118,40 +153,16 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             best_model = deepcopy(model)
             
         are_interactions_needed = args.sample_users or args.contrastive_coef > 0
-        
         for epoch in range(1, nr_epochs+1):
-            train_losses = {"Loss": [], "L2": [], "L1": [], "L0": [], "Cosine": []}
-            model.train()
-            
             if are_interactions_needed:
-                pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
+                train_losses = train_epoch_from_interactions()
             else:
-                pbar = tqdm(train_embeddings_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
-
-            for batch in pbar: # train one batch
-                # positive_batch = sampled_interactions(batch, ratio=0.7) if args.contrastive_coef > 0 else None
-                if args.contrastive_coef > 0:
-                    positive_batch = sampled_interactions(batch, ratio=0.5)
-                    positive_batch = base_model.encode(positive_batch).detach()
-                else:
-                    positive_batch = None
-
-                if args.sample_users:
-                    batch = sampled_interactions(batch)
-                if are_interactions_needed:
-                    batch = base_model.encode(batch).detach()
-                
-                    
-                losses = model.train_step(optimizer, batch, positive_batch)
-                pbar.set_postfix({'train_loss': losses['Loss'].cpu().item()})
-                
-                for key, val in train_losses.items():
-                    val.append(losses[key].item())
+                train_losses = train_epoch_from_embeddings()
             
-            if epoch % args.evaluate_every == 0:
-                for key, val in train_losses.items():
-                    mlflow.log_metric(f'loss/{key}/train', float(np.mean(val)), step=epoch)
+            for key, val in train_losses.items():
+                mlflow.log_metric(f'loss/{key}/train', float(np.mean(val)), step=epoch)
                     
+            if epoch % evaluate_every == 0:
                 # Evaluate
                 model.eval()
                 # loss
