@@ -22,5 +22,6 @@ class LastFm1kLoader(DatasetLoader):
             .with_row_index().filter(~pl.col("index").is_in(skiprows)).drop("index") # skip damaged rows
             .cast({'userId': pl.String, 'itemId': pl.String})
             .unique()
+             .sort(['userId', 'itemId'])
             .collect()
         )

@@ -14,5 +14,6 @@ class EchoNestLoader(DatasetLoader):
             .select(['userId', 'itemId'])
             .cast({'userId': pl.String, 'itemId': pl.String})
             .unique()
+            .sort(['userId', 'itemId'])
             .collect()
         )

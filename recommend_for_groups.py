@@ -40,8 +40,8 @@ def parse_arguments():
     # Recommender parameters
     parser.add_argument("--recommender_strategy", type=str, default='SAE', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
     parser.add_argument("--SAE_fusion_strategy", type=str, default='common_features', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
-    parser.add_argument("--combine_features_strategy", type=str, default='none', help="Strategy to combinee features.")
-    parser.add_argument("--combine_features_percentile", type=float, default=0.95, help="Aplied only if combine_features_strategy is not 'percentile'. Percentile to use for combine features.")
+    parser.add_argument("--combine_features_strategy", type=str, default='topk', help="Strategy to combinee features.")
+    parser.add_argument("--combine_features_percentile", type=float, default=0.50, help="Aplied only if combine_features_strategy is not 'percentile'. Percentile to use for combine features.")
     parser.add_argument("--combine_features_topk", type=int, default=100, help="Aplied only if combine_features_strategy is 'topk'. combinee top_k features for each feature.")
     
     # group parameters
@@ -53,7 +53,7 @@ def parse_arguments():
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions from initial interactions')
-    parser.add_argument('--add_interactions', type=int, default=1000, help='Number of additional interactions that should be added for each user (used if we have low number of interactions). Note: The final number of target interactions will be target_ratio * interactions + add_interactions')
+    parser.add_argument('--add_interactions', type=int, default=500, help='Number of additional interactions that should be added for each user (used if we have low number of interactions). Note: The final number of target interactions will be target_ratio * interactions + add_interactions')
     parser.add_argument('--k', type=int, default=20, help='Evaluation at k')
     
     return parser.parse_args()
@@ -122,11 +122,11 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
                     (additional_data, (additional_rows, additional_cols)),
                     shape=group_interactions.shape
                 )
-                # group_interactions += additional_matrix
+                group_interactions += additional_matrix
             
-            final_target_ratio = 0.2
+            final_target_ratio = np.mean((interactions_count * args.target_ratio + add_interactions) / (interactions_count + add_interactions))
             inputs, targets = Utils.split_input_target_interactions(group_interactions, final_target_ratio, args.seed)
-            targets += additional_matrix
+            # targets += additional_matrix
             inputs, targets = torch.tensor(inputs.toarray(), device=device, dtype=torch.float32), torch.tensor(targets.toarray(), device=device, dtype=torch.float32)
             mask = (inputs.sum(axis=0).squeeze() != 0).unsqueeze(0).repeat(inputs.shape[0], 1)
             

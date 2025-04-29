@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 import torch
 from enum import Enum
 from torch.nn import functional as F
+import numpy as np
 
 class CombineFeaturesStrategyType(Enum):
     """
@@ -24,6 +25,7 @@ class CombineFeaturesStrategy(ABC):
         norm_W = F.normalize(decoder, p=2, dim=1)
         self.sim_matrix = norm_W @ norm_W.T
         self.sim_matrix = self.sim_matrix.fill_diagonal_(0)
+        print(self.sim_matrix.shape)
     
     
     @staticmethod
@@ -61,6 +63,8 @@ class PercentileCombineFeaturesStrategy(CombineFeaturesStrategy):
     def __init__(self, decoder: torch.Tensor, percentile: float = 0.99, **kwargs):
         super().__init__(decoder, **kwargs)
         sim_values = self.sim_matrix.flatten()
+        indices = np.random.randint(0, len(sim_values), (min(100_000, len(sim_values)),))
+        sim_values = sim_values[indices]
         self.threshold = torch.quantile(sim_values, percentile)
         self.sim_matrix = torch.where(self.sim_matrix > self.threshold, self.sim_matrix, torch.zeros_like(self.sim_matrix))
         self.sim_matrix = self.sim_matrix.fill_diagonal_(1)
