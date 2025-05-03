@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader
+from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
 from models import ELSA
 import mlflow
 import numpy as np
@@ -126,6 +126,8 @@ def main(args):
         dataset_loader = EchoNestLoader()
     elif args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
+    elif args.dataset == 'MovieLens':
+        dataset_loader = MovieLensLoader()
     else:
         raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
     dataset_loader.prepare(args)
