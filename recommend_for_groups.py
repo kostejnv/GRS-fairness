@@ -226,7 +226,7 @@ def main(args):
         base_factors = int(sae_params['base_factors'])
         sae_topk_aux = int(sae_params.get('topk_aux', 0))
         sae_n_batches_to_dead = int(sae_params.get('n_batches_to_dead', 0))
-        sae_normalize = bool(sae_params.get('normalize', False))
+        sae_normalize = True if sae_params.get('normalize', 'False') == 'True' else False
         sae_auxiliary_coef = float(sae_params.get('auxiliary_coef', 0))
         sae_contrastive_coef = float(sae_params.get('contrastive_coef', 0))
         sae_reconstruction_coef = float(sae_params.get('reconstruction_coef', 1))
@@ -240,7 +240,7 @@ def main(args):
             "device": device,
             "topk_aux": sae_topk_aux,
             "n_batches_to_dead": sae_n_batches_to_dead,
-            "normalize": False,
+            "normalize": sae_normalize,
             "auxiliary_coef": sae_auxiliary_coef,
             "contrastive_coef": sae_contrastive_coef,
             "reconstruction_coef": sae_reconstruction_coef,

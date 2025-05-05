@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader
+from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
 from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE
 import mlflow
 import numpy as np
@@ -29,7 +29,7 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
     parser.add_argument("--sae_run_id", type=str, help="Run ID of the analyzed SAE model")
     parser.add_argument("--user_set", type=str, default='full', help="User set to analyze (full, test, train)")
     parser.add_argument("--user_sample", type=int, default=5_000, help="Number of users to sample")
@@ -71,6 +71,10 @@ def main(args):
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'EchoNest':
         dataset_loader = EchoNestLoader()
+    elif args.dataset == 'MovieLens':
+        dataset_loader = MovieLensLoader()
+    else:
+        raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
             
     dataset_loader.prepare(args)
     
@@ -100,6 +104,28 @@ def main(args):
     sae_reconstruction_loss = sae_params['reconstruction_loss']
     sae_l1_coef = float(sae_params['l1_coef'])
     sae_top_k = int(sae_params['top_k'])
+    base_factors = int(sae_params['base_factors'])
+    sae_topk_aux = int(sae_params.get('topk_aux', 0))
+    sae_n_batches_to_dead = int(sae_params.get('n_batches_to_dead', 0))
+    sae_normalize = True if sae_params.get('normalize', 'False') == 'True' else False
+    sae_auxiliary_coef = float(sae_params.get('auxiliary_coef', 0))
+    sae_contrastive_coef = float(sae_params.get('contrastive_coef', 0))
+    sae_reconstruction_coef = float(sae_params.get('reconstruction_coef', 1))
+    
+    cfg = {
+        'reconstruction_loss': sae_reconstruction_loss,
+        "input_dim": base_factors,
+        "embedding_dim": sae_embedding_dim,
+        "l1_coef": sae_l1_coef,
+        "k": sae_top_k,
+        "device": device,
+        "topk_aux": sae_topk_aux,
+        "n_batches_to_dead": sae_n_batches_to_dead,
+        "normalize": sae_normalize,
+        "auxiliary_coef": sae_auxiliary_coef,
+        "contrastive_coef": sae_contrastive_coef,
+        "reconstruction_coef": sae_reconstruction_coef,
+    }
     
     elsa = ELSA(base_items, base_factors)
     optimizer = torch.optim.Adam(elsa.parameters())
@@ -109,9 +135,9 @@ def main(args):
     logging.info(f'ELSA model loaded from {base_artifact_path}')
     
     if sae_params['model'] == 'BasicSAE':
-        sae = BasicSAE(base_factors, sae_embedding_dim, sae_reconstruction_loss, l1_coef=sae_l1_coef).to(device)
+        sae = BasicSAE(base_factors, sae_embedding_dim, cfg).to(device)
     elif sae_params['model'] == 'TopKSAE':
-        sae = TopKSAE(base_factors, sae_embedding_dim, sae_reconstruction_loss, l1_coef=sae_l1_coef, k=sae_top_k).to(device)
+        sae = TopKSAE(base_factors, sae_embedding_dim, cfg).to(device)
     else:
         raise ValueError(f'Model {sae_params["model"]} not supported. Check typos.')
     
