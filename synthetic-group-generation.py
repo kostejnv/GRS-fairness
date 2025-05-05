@@ -3,7 +3,7 @@
 import mlflow
 from copy import deepcopy
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader
+from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
 from utils import Utils
 from models import ELSA
 import tqdm
@@ -27,19 +27,20 @@ def parse_arguments():
     parser = argparse.ArgumentParser() # TODO: Add description
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     # dataset
-    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
-    parser.add_argument('--td_quantile', type=float, default=0.9, help='Threshold quantile for similarity')
-    parser.add_argument('--ts_quantile', type=float, default=0.1, help='Threshold quantile for divergence')
+    parser.add_argument('--td_quantile', type=float, default=0.75, help='Threshold quantile for similarity')
+    parser.add_argument('--ts_quantile', type=float, default=0.25, help='Threshold quantile for divergence')
     parser.add_argument('--similar_groups', type=list, default=[3,5], help='Number of similar groups')
     parser.add_argument('--divergent_groups', type=list, default=[3,5], help='Number of divergent groups')
-    parser.add_argument('--opposing_groups', type=list, default=[[2,1],[3,2],[4,1]], help='Number of opposing groups')
-    parser.add_argument('--user_sample', type=int, default=5000, help='Number of users to sample')
+    parser.add_argument('--random_groups', type=list, default=[3,5], help='Number of random groups')
+    # parser.add_argument('--opposing_groups', type=list, default=[[2,1],[3,2],[4,1]], help='Number of opposing groups')
+    parser.add_argument('--user_sample', type=int, default=10_000, help='Number of users to sample')
     parser.add_argument('--group_count', type=int, default=100, help='Number of groups')
-    parser.add_argument("--run_id", type=str, default='494195a6c97f49169010f64a3bfcdf2a', help="Run ID of the base model")
+    parser.add_argument("--run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
-    parser.add_argument("--user_set", type=str, default='full', help="User set to generate groups for (full, test)")
+    parser.add_argument("--user_set", type=str, default='train', help="User set to generate groups for (full, test)")
     
     return parser.parse_args()
 
@@ -71,6 +72,8 @@ def main(args):
         dataset_loader = EchoNestLoader()
     elif args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
+    elif args.dataset == 'MovieLens':
+        dataset_loader = MovieLensLoader()
     else:
         raise ValueError(f'Dataset {args.dataset} not supported. Check typos.')
     dataset_loader.prepare(args)
@@ -153,6 +156,7 @@ def main(args):
             try:
                 return _similar_group(group_size)
             except TimeoutError:
+                logging.info('Could not find similar group... trying again')
                 pass
 
     def is_user_divergent(group_members, user):
@@ -179,6 +183,7 @@ def main(args):
             try:
                 return _divergent_group(group_size)
             except TimeoutError:
+                logging.info('Could not find divergent group... trying again')
                 pass
             
 
@@ -216,7 +221,13 @@ def main(args):
             try:
                 return _opposing_group(group_size)
             except TimeoutError:
+                logging.info('Could not find opposing group... trying again')
                 pass
+            
+    def random_group(group_size):
+        user_count = len(similarity_matrix)
+        group_members = [random.randint(0, user_count-1) for _ in range(group_size)]
+        return group_members
             
             
     logging.info('Generating groups')
@@ -234,11 +245,17 @@ def main(args):
         divergent_groups[group_size] = user_ids[group_idxs]
     logging.info('Divergent groups generated')
     
-    opposing_groups = {}
-    for group_size in args.opposing_groups:
-        group_idxs = [opposing_group(group_size) for _ in range(args.group_count)]
-        opposing_groups[tuple(group_size)] = user_ids[group_idxs]
-    logging.info('Opposing groups generated')
+    # opposing_groups = {}
+    # for group_size in args.opposing_groups:
+    #     group_idxs = [opposing_group(group_size) for _ in range(args.group_count)]
+    #     opposing_groups[tuple(group_size)] = user_ids[group_idxs]
+    # logging.info('Opposing groups generated')
+    
+    random_groups = {}
+    for group_size in args.random_groups:
+        group_idxs = [random_group(group_size) for _ in range(args.group_count)]
+        random_groups[group_size] = user_ids[group_idxs]
+    logging.info('Random groups generated')
     
     # save groups as numpy arrays
 
@@ -251,8 +268,11 @@ def main(args):
     for group_size, groups in divergent_groups.items():
         np.save(f'{out_path}/divergent_{group_size}.npy', np.array(groups))
         
-    for group_size, groups in opposing_groups.items():
-        np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}.npy', np.array(groups))
+    # for group_size, groups in opposing_groups.items():
+    #     np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}.npy', np.array(groups))
+    
+    for group_size, groups in random_groups.items():
+        np.save(f'{out_path}/random_{group_size}.npy', np.array(groups))
         
     logging.info('Groups saved')
     

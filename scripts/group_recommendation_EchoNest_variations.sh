@@ -10,8 +10,6 @@ sae_run_ids=(
 
 group_types=(
     'sim'
-    'div'
-    '21'
 )
 
 user_types=(
@@ -21,7 +19,7 @@ user_types=(
 
 fusion_strategies=(
     # 'at_least_2_common_features'
-    'average'
+    # 'average'
     # 'square_average'
     # 'topk'
     # 'max'

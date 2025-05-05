@@ -52,6 +52,7 @@ def parse_arguments():
     parser.add_argument("--l1_coef", type=float, default=3e-4, help="L1 loss coefficient (BasicSAE, TopKSAE)")
     parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
     parser.add_argument('--evaluate_every', type=int, default=10, help='Evaluate every n epochs')
+    parser.add_argument('--note', type=str, default='', help='Note for the experiment')
     
     return parser.parse_args()
 
@@ -118,7 +119,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             pbar = tqdm(train_interaction_dataloader, desc=f'Epoch {epoch}/{nr_epochs}')
             for batched_interactions in pbar: # train one batch
                 if args.contrastive_coef > 0:
-                    positive_batch = sampled_interactions(batched_interactions)
+                    positive_batch = sampled_interactions(batched_interactions, ratio=0.5)
                     positive_batch = base_model.encode(positive_batch).detach()
                 else:
                     positive_batch = None
@@ -248,6 +249,8 @@ def main(args):
     artifact_path = './' + artifact_path[artifact_path.find('mlruns'):]
     
     assert base_params['dataset'] == args.dataset, 'Base model dataset does not match current dataset'
+    
+    logging.info(f'Params: {vars(args)}')
     
     args.base_model = base_params['model']
     args.base_factors = int(base_params['factors'])

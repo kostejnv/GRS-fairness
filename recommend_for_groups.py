@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader
+from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
 from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE
 from popularity import Popularity
 import mlflow
@@ -31,7 +31,7 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
+    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
     # model parameters
     parser.add_argument("--sae_run_id", type=str, default='318970e320ca49e99179493b59c2a389', help="Run ID of the analyzed SAE model")
     parser.add_argument("--use_base_model_from_sae", action='store_true', help="Use base model from SAE run")
@@ -40,7 +40,7 @@ def parse_arguments():
     # Recommender parameters
     parser.add_argument("--recommender_strategy", type=str, default='SAE', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
     parser.add_argument("--SAE_fusion_strategy", type=str, default='common_features', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
-    parser.add_argument("--combine_features_strategy", type=str, default='topk', help="Strategy to combinee features.")
+    parser.add_argument("--combine_features_strategy", type=str, default='none', help="Strategy to combinee features.")
     parser.add_argument("--combine_features_percentile", type=float, default=0.50, help="Aplied only if combine_features_strategy is not 'percentile'. Percentile to use for combine features.")
     parser.add_argument("--combine_features_topk", type=int, default=100, help="Aplied only if combine_features_strategy is 'topk'. combinee top_k features for each feature.")
     
@@ -53,12 +53,13 @@ def parse_arguments():
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions from initial interactions')
-    parser.add_argument('--add_interactions', type=int, default=500, help='Number of additional interactions that should be added for each user (used if we have low number of interactions). Note: The final number of target interactions will be target_ratio * interactions + add_interactions')
+    parser.add_argument('--add_interactions', type=int, default=0, help='Number of additional interactions that should be added for each user (used if we have low number of interactions). Note: The final number of target interactions will be target_ratio * interactions + add_interactions')
     parser.add_argument('--k', type=int, default=20, help='Evaluation at k')
+    parser.add_argument('--note', type=str, default='', help='Note to add to the experiment')
     
     return parser.parse_args()
 
-GROUP_TYPES = ['sim', 'div', '21']
+GROUP_TYPES = ['sim', 'div', '21', 'random']
 RECOMMENDER_STRATEGIES = ['SAE', 'ADD', 'LMS', 'GFAR', 'EPFuzzDA', 'MPL', 'ELSA', 'ELSA_INT']
 SAE_FUSION_STRATEGIES = [strategy.value for strategy in FusionStrategyType]
 COMBINE_FEATURES_STRATEGIES = [strategy.value for strategy in CombineFeaturesStrategyType]
@@ -72,6 +73,8 @@ def get_groups_path(dataset, group_type, group_size, user_set):
         filename = f'divergent_{group_size}.npy'
     elif group_type == '21':
         filename = f'opposing_2_1.npy'
+    elif group_type == 'random':
+        filename = f'random_{group_size}.npy'
     return path + filename
     
 def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups, interactions: sp.csr_matrix):
@@ -163,7 +166,7 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
             f'NDCG{args.k}/std': float(np.std(ndcgs_means)),
             f'NDCG{args.k}/min': float(np.median(ndcgs_mins)),
             f'NDCG{args.k}/max': float(np.median(ndcgs_maxs)),
-            f'NDCG{args.k}/min:mean': float(np.median(ndcgs_mins/ndcgs_means)) if np.median(ndcgs_means) > 0 else 0,
+            f'NDCG{args.k}/min:mean': float(np.median(np.divide(ndcgs_mins, ndcgs_means, out=np.zeros_like(ndcgs_mins), where=ndcgs_means!=0))),
             f'ScorPerItem/mean': float(np.median(rel_scores_per_item_means)),
             f'ScorPerItem/min': float(np.median(rel_scores_per_item_mins)),
             f'ScorPerItem/min:mean': float(np.median(rel_scores_per_item_mins/rel_scores_per_item_means)),
@@ -184,6 +187,8 @@ def main(args):
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'EchoNest':
         dataset_loader = EchoNestLoader()
+    elif args.dataset == 'MovieLens':
+        dataset_loader = MovieLensLoader()
     dataset_loader.prepare(args)
     interactions = dataset_loader.csr_interactions
     

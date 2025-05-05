@@ -1,24 +1,23 @@
 #!/bin/bash
 
+# variable note
+note="sizes"
+
 sae_run_ids=(
-    # 'c0e0c953b7394bbaabaac917a9274beb'
-    # '5b045a645c794a51b0d28c317e3c1e4d'
-    # '4ffd4c831f0343f3b96e1bf7ff27fb05'
-    # 'b1d64424a40740df844e914e1ed12568'
-    # '75df48f60ec24ba68265c003781c3deb'
-    # 'c4e39f27c0964f5cae0f52f76cd46dd6'
-    # '548ebfc2219148f28695eda707ca4566'
-    # 'b3ab3fa715d84660a35ce428348216dc'
-    # 'c1f21aa623cb4b838d296536b2cb5989'
-    # '465d2e89ed6744a280b5376ad01493b1'
-    # 'c0a08df9b6c94d2499402dbba475397a'
-    7d04a448cf3c4f0988c6ea296b1cdce4
+    'f94c2b71ea6f49ea8b7f15ec7bcd898f'
+    '23066f676669401ba3a51ec80ee67611'
+    '187b834845454facbc47846538884165'
+    '1401a31beaba40a4b4605dd0c8cfdd16'
+    '253f2ec70dec4c05be3696b2356b80fb'
+    'fcc282c69ba8421189f1ff7a6c23029b'
+    'd07c9ad6b69540778a1cd53099b91670'
+    '312d5703119b4d5abb359579774c26f4'
+    'db01455e879a446bbc53c6ef3e0ca723'
 )
+
 
 group_types=(
     'sim'
-    'div'
-    '21'
 )
 
 user_types=(
@@ -27,20 +26,12 @@ user_types=(
 )
 
 fusion_strategies=(
-    'at_least_2_common_features'
-    'average'
-    'square_average'
-    'topk'
-    'max'
+    # 'at_least_2_common_features'
+    # 'average'
+    # 'square_average'
+    # 'topk'
+    # 'max'
     'common_features'
-)
-
-recommender_strategies=(
-    'ADD'
-    'LMS'
-    'GFAR'
-    'EPFuzzDA'
-    'MPL'
 )
 
 for user_type in "${user_types[@]}"
@@ -51,27 +42,24 @@ do
         do
             for fusion_strategy in "${fusion_strategies[@]}"
             do
-                python recommend_for_groups.py --dataset LastFM1k --sae_run_id "$sae_run_id" --use_base_model_from_sae --recommender_strategy SAE --SAE_fusion_strategy "$fusion_strategy" --group_type "$group_type" --group_size 3 --user_set "$user_type"
+                python recommend_for_groups.py --dataset LastFM1k --sae_run_id "$sae_run_id" --use_base_model_from_sae --recommender_strategy SAE --SAE_fusion_strategy "$fusion_strategy" --group_type "$group_type" --group_size 3 --user_set "$user_type" --note "$note" --add_interactions 0
             done
         done
     done
 done
 
-# for user_type in "${user_types[@]}"
-# do
-#     for group_type in "${group_types[@]}"
-#     do
-#         for recommender_strategy in "${recommender_strategies[@]}"
-#         do
-#             python recommend_for_groups.py --dataset LastFM1k --recommender_strategy "$recommender_strategy" --group_type "$group_type" --group_size 3 --user_set "$user_type"
-#         done
-#     done
-# done
+for user_type in "${user_types[@]}"
+do
+    for group_type in "${group_types[@]}"
+    do
+        python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type" --base_run_id 4a43996d7eec489183ad0d6b0c00d935 --add_interactions 0
+    done
+done
 
-# for user_type in "${user_types[@]}"
-# do
-#     for group_type in "${group_types[@]}"
-#     do
-#         python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type"
-#     done
-# done
+for user_type in "${user_types[@]}"
+do
+    for group_type in "${group_types[@]}"
+    do
+        python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA_INT --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type" --base_run_id 4a43996d7eec489183ad0d6b0c00d935 --add_interactions 0
+    done
+done
