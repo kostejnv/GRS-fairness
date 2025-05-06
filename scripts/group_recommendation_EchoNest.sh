@@ -27,11 +27,11 @@ user_types=(
 
 fusion_strategies=(
     # 'at_least_2_common_features'
-    # 'average'
+    'average'
     # 'square_average'
     # 'topk'
     # 'max'
-    'common_features'
+    # 'common_features'
 )
 
 for user_type in "${user_types[@]}"

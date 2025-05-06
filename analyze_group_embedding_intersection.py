@@ -36,12 +36,13 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
+    parser.add_argument('--note', type=str, default='', help='Note to add to the experiment')
     
     return parser.parse_args()
 
 
 def main(args):
-    assert args.group_size == 3, 'Only group size 3 is supported for now'
+    assert args.group_size in [3,5], 'Only group size 3 is supported for now'
     assert args.group_type in ['sim', 'div', '21', 'random'], 'Group type not supported'
     
     # load sae model
@@ -53,6 +54,9 @@ def main(args):
     args.top_k = sae_params.get('top_k', None)
     args.sample_users = sae_params['sample_users']
     args.sae_model = sae_params['model']
+    args.reconstruction_loss = sae_params['reconstruction_loss']
+    args.normalize = sae_params.get('normalize', 'False')
+    args.contrastive_coef = float(sae_params.get('contrastive_coef', 0))
     args.sae_run_id = args.sae_run_id
     
     sae_artifact_path = sae_run.info.artifact_uri

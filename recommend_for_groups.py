@@ -63,7 +63,7 @@ GROUP_TYPES = ['sim', 'div', '21', 'random']
 RECOMMENDER_STRATEGIES = ['SAE', 'ADD', 'LMS', 'GFAR', 'EPFuzzDA', 'MPL', 'ELSA', 'ELSA_INT']
 SAE_FUSION_STRATEGIES = [strategy.value for strategy in FusionStrategyType]
 COMBINE_FEATURES_STRATEGIES = [strategy.value for strategy in CombineFeaturesStrategyType]
-GROUP_SIZES = [3]
+GROUP_SIZES = [3,5]
 
 def get_groups_path(dataset, group_type, group_size, user_set):
     path = f'data/synthetic_groups/{dataset}/{user_set}/'
@@ -220,6 +220,9 @@ def main(args):
         args.sample_users = sae_params['sample_users']
         args.sae_model = sae_params['model']
         args.sae_run_id = args.sae_run_id
+        args.reconstruction_loss = sae_params['reconstruction_loss']
+        args.normalize = sae_params.get('normalize', 'False')
+        args.contrastive_coef = float(sae_params.get('contrastive_coef', 0))
     
         sae_artifact_path = sae_run.info.artifact_uri
         sae_artifact_path = './' + sae_artifact_path[sae_artifact_path.find('mlruns'):]

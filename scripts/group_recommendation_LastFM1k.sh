@@ -1,18 +1,15 @@
 #!/bin/bash
 
 # variable note
-note="sizes"
+note="variants"
 
 sae_run_ids=(
-    'f94c2b71ea6f49ea8b7f15ec7bcd898f'
-    '23066f676669401ba3a51ec80ee67611'
-    '187b834845454facbc47846538884165'
-    '1401a31beaba40a4b4605dd0c8cfdd16'
-    '253f2ec70dec4c05be3696b2356b80fb'
-    'fcc282c69ba8421189f1ff7a6c23029b'
-    'd07c9ad6b69540778a1cd53099b91670'
-    '312d5703119b4d5abb359579774c26f4'
-    'db01455e879a446bbc53c6ef3e0ca723'
+'91986527055744a798f3f785694ef9ac'
+'e6f874617a574800b8d5a11254711223'
+'4f7b3e314fc24e3b8f42b6ad72148888'
+'539e93e0a9a247e291106aeaface5a32'
+'6f9e049848024ae3a7a65af9bcd1ce7b'
+'a8bd0fb5815f44e2a2e3205d140790f6'
 )
 
 
@@ -48,18 +45,18 @@ do
     done
 done
 
-for user_type in "${user_types[@]}"
-do
-    for group_type in "${group_types[@]}"
-    do
-        python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type" --base_run_id 4a43996d7eec489183ad0d6b0c00d935 --add_interactions 0
-    done
-done
+# for user_type in "${user_types[@]}"
+# do
+#     for group_type in "${group_types[@]}"
+#     do
+#         python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type" --base_run_id 4a43996d7eec489183ad0d6b0c00d935 --add_interactions 0 --note "$note"
+#     done
+# done
 
-for user_type in "${user_types[@]}"
-do
-    for group_type in "${group_types[@]}"
-    do
-        python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA_INT --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type" --base_run_id 4a43996d7eec489183ad0d6b0c00d935 --add_interactions 0
-    done
-done
+# for user_type in "${user_types[@]}"
+# do
+#     for group_type in "${group_types[@]}"
+#     do
+#         python recommend_for_groups.py --dataset LastFM1k --recommender_strategy ELSA_INT --SAE_fusion_strategy average --group_type "$group_type" --group_size 3 --user_set "$user_type" --base_run_id 4a43996d7eec489183ad0d6b0c00d935 --add_interactions 0 --note "$note"
+#     done
+# done
