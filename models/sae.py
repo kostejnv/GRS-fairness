@@ -166,9 +166,49 @@ class TopKSAE(SAE):
         self.l1_coef = cfg.get("l1_coef", 0)
 
     def post_process_embedding(self, e: torch.Tensor) -> torch.Tensor:
-        e_topk = torch.topk(e, self.cfg["k"], dim=-1)
-        return torch.zeros_like(e).scatter(-1, e_topk.indices, e_topk.values)
+        if self.training:
+            e_topk = torch.topk(e, self.cfg["k"], dim=-1)
+            return torch.zeros_like(e).scatter(-1, e_topk.indices, e_topk.values)
+        else:
+            return e
 
+    def total_loss(self, partial_losses: dict) -> torch.Tensor:
+        rec_coef, aux_coef, con_coef = self.cfg["reconstruction_coef"], self.cfg["auxiliary_coef"], self.cfg["contrastive_coef"]
+        
+        reconstruction_loss = rec_coef * partial_losses[self.reconstruction_loss] + self.l1_coef * partial_losses["L1"]
+        auxiliary_loss = aux_coef * partial_losses["Auxiliary"]
+        contrastive_loss = con_coef * partial_losses["Contrastive"]
+        
+        return reconstruction_loss + auxiliary_loss + contrastive_loss
+    
+class BatchTopKSAE(SAE):
+    def __init__(self, input_dim: int, embedding_dim: int, cfg: dict):
+        super().__init__(input_dim, embedding_dim, cfg)
+        self.threshold = nn.Parameter(torch.zeros(1), requires_grad=False) # threshold for inference
+        self.processed_batches_count = nn.Parameter(torch.zeros(1), requires_grad=False) # number of processed batches
+        
+        self.k = cfg["k"]
+        self.reconstruction_coef = cfg.get("reconstruction_coef", 1.0)
+        self.auxiliary_coef = cfg.get("auxiliary_coef", 0)
+        self.contrastive_coef = cfg.get("contrastive_coef", 0)
+        self.l1_coef = cfg.get("l1_coef", 0)
+        
+    def _update_threshold(self, min_batch_value: float) -> None:
+        self.processed_batches_count += 1
+        # update the threshold as average of all processed batches min values
+        self.threshold += (min_batch_value - self.threshold) / self.processed_batches_count
+
+    def post_process_embedding(self, e: torch.Tensor) -> torch.Tensor:
+        if self.training:
+            batch_topk = torch.topk(e.flatten(), self.k * e.shape[0], dim=-1)
+            e_topk = torch.zeros_like(e.flatten()).scatter(-1, batch_topk.indices, batch_topk.values).reshape(e.shape)
+            min_nonzero_value = batch_topk.values[batch_topk.values > 0].min().cpu().item()
+            self._update_threshold(min_nonzero_value)
+        else:
+            # during inference, use the threshold to filter out small values
+            e_topk = torch.where(e > self.threshold, e, torch.zeros_like(e))
+        return e_topk
+    
     def total_loss(self, partial_losses: dict) -> torch.Tensor:
         rec_coef, aux_coef, con_coef = self.cfg["reconstruction_coef"], self.cfg["auxiliary_coef"], self.cfg["contrastive_coef"]
         

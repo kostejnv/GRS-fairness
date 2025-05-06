@@ -3,7 +3,7 @@ import logging
 import sys
 import torch
 from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
-from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE
+from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE, BatchTopKSAE
 import mlflow
 import numpy as np
 import random
@@ -27,14 +27,14 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
-    parser.add_argument('--epochs', type=int, help='Number of epochs to train the model')
-    parser.add_argument('--early_stop', type=int, help='Number of epochs to wait for improvement before stopping')
-    parser.add_argument('--batch_size', type=int, help='Batch size for training')
-    parser.add_argument('--embedding_dim', type=int, help='Number of factors for the model')
-    parser.add_argument('--top_k', type=int, help='Top k parameter for TopKSAE')
-    parser.add_argument("--base_run_id", type=str, help="Run ID of the base model")
-    parser.add_argument("--sample_users", action='store_true', help="Choose randomly 0.5 - 1.0 of the users interactions")
+    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
+    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train the model')
+    parser.add_argument('--early_stop', type=int, default=10, help='Number of epochs to wait for improvement before stopping')
+    parser.add_argument('--batch_size', type=int, default=64, help='Batch size for training')
+    parser.add_argument('--embedding_dim', type=int, default=2048, help='Number of factors for the model')
+    parser.add_argument('--top_k', type=int, default=128, help='Top k parameter for TopKSAE')
+    parser.add_argument("--base_run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Run ID of the base model")
+    parser.add_argument("--sample_users", action='store_true', default=False, help="Choose randomly 0.5 - 1.0 of the users interactions")
     # stable parameters
     parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate for training')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
@@ -42,7 +42,7 @@ def parse_arguments():
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--beta1', type=float, default=0.9, help='Beta1 for Adam optimizer')
     parser.add_argument('--beta2', type=float, default=0.99, help='Beta2 for Adam optimizer')
-    parser.add_argument('--model', type=str, default='TopKSAE', help='Model to use (BasicSAE, TopKSAE)')
+    parser.add_argument('--model', type=str, default='BatchTopKSAE', help='Model to use (BasicSAE, TopKSAE, BatchTopKSAE)')
     parser.add_argument("--reconstruction_loss", type=str, default="Cosine", help="Reconstruction loss (L2 or Cosine)")
     parser.add_argument("--auxiliary_coef", type=float, default=1/32, help="Auxiliary loss coefficient (BasicSAE, TopKSAE)")
     parser.add_argument("--contrastive_coef", type=float, default=0.3, help="Contrastive loss coefficient (BasicSAE, TopKSAE)")
@@ -70,7 +70,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
         'mlflow.note.content': f'This experiments trains an dense user embedding for the {dataset}.'
     })
     
-    if args.model == 'TopKSAE':
+    if args.model in ['TopKSAE', 'BatchTopKSAE']:
         run_name = f'{args.model}_{args.embedding_dim}_{args.top_k}_{TIMESTAMP}'
     else:
         run_name = f'{args.model}_{args.embedding_dim}_{TIMESTAMP}'
@@ -206,8 +206,9 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
         logging.info(f'Test metrics - Cosine: {test_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {test_metrics["NDCG20_Degradation"]:.4f}')
         
         # Save model
-        temp_path = 'checkpoint.ckpt'
+        temp_path = './checkpoint.ckpt'
         Utils.save_checkpoint(model, optimizer, temp_path)
+        print(f'Saving model to {temp_path}')
         mlflow.log_artifact(temp_path)
         mlflow.log_artifact('models/sae.py')
         # os.remove(temp_path)
@@ -226,9 +227,17 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             "reconstruction_coef": args.reconstruction_coef,
         }
         
-        model = TopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
+        if args.model == 'BasicSAE':
+            model = BasicSAE(args.base_factors, args.embedding_dim, cfg).to(device)
+        elif args.model == 'TopKSAE':
+            model = TopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
+        elif args.model == 'BatchTopKSAE':
+            model = BatchTopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
+        else:
+            raise ValueError(f'Model {args.model} not supported. Check typos.')
         optimizer = torch.optim.Adam(model.parameters())
         Utils.load_checkpoint(model, optimizer, temp_path, device)
+        print(model.threshold)
         
         test_metrics = Utils.evaluate_sparse_encoder(base_model, model, test_csr, args.target_ratio, batch_size, device, seed=args.seed)
         for key, val in test_metrics.items():
@@ -308,6 +317,8 @@ def main(args):
         model = BasicSAE(args.base_factors, args.embedding_dim, cfg).to(device)
     elif args.model == 'TopKSAE':
         model = TopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
+    elif args.model == 'BatchTopKSAE':
+        model = BatchTopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
     else:
         raise ValueError(f'Model {args.model} not supported. Check typos.')
 
