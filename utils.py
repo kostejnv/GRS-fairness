@@ -209,8 +209,17 @@ class Utils:
         return int((sparse_embeddings.sum(0) == 0).sum().detach().cpu().numpy())
     
     @staticmethod
-    def rel_score_per_item(recommendations: np.ndarray, user_relevance_scores: np.ndarray) -> np.ndarray:
-        return np.array([user_relevance_scores[:, rec] for rec in recommendations])
+    def rel_score_per_item(recommendations: np.ndarray, elsa_scores: np.ndarray) -> np.ndarray:
+        return np.array([elsa_scores[:, rec] for rec in recommendations])
+    
+    @staticmethod
+    def ranks_per_item(recommendations: np.ndarray, elsa_scores: np.ndarray) -> np.ndarray:
+        # reverse argsort
+        ranks = np.argsort(-elsa_scores, axis=1)
+        ranks = np.argsort(ranks, axis=1)
+        ranks = 1 - ( np.log10(ranks + 1) / np.log10(elsa_scores.shape[1]))
+        ranks = np.array([ranks[:, rec] for rec in recommendations])
+        return ranks
     
     @staticmethod
     def recommendations_similarity(recommendations: np.ndarray, elsa: ELSA):

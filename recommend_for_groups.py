@@ -31,11 +31,11 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='EchoNest', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
+    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
     # model parameters
-    parser.add_argument("--sae_run_id", type=str, default='318970e320ca49e99179493b59c2a389', help="Run ID of the analyzed SAE model")
+    parser.add_argument("--sae_run_id", type=str, default='e6f874617a574800b8d5a11254711223', help="Run ID of the analyzed SAE model")
     parser.add_argument("--use_base_model_from_sae", action='store_true', help="Use base model from SAE run")
-    parser.add_argument("--base_run_id", type=str, default='494195a6c97f49169010f64a3bfcdf2a', help="Run ID of the base model if not using SAE base model")
+    parser.add_argument("--base_run_id", type=str, default='null', help="Run ID of the base model if not using SAE base model")
     
     # Recommender parameters
     parser.add_argument("--recommender_strategy", type=str, default='SAE', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
@@ -47,7 +47,7 @@ def parse_arguments():
     # group parameters
     parser.add_argument("--group_type", type=str, default='sim', help="Type of group to analyze. Options: 'sim', 'div', '21'")
     parser.add_argument("--group_size", type=int, default=3, help="Size of the group to analyze")
-    parser.add_argument("--user_set", type=str, default='test', help="User set from which the groups where sampled (full, test, train)")
+    parser.add_argument("--user_set", type=str, default='train', help="User set from which the groups where sampled (full, test, train)")
     # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
@@ -95,21 +95,18 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
     else:
         run_name = f'{args.group_type}_{args.group_size}_{args.recommender_strategy}_{TIMESTAMP}'
         
-    def normalize_rel_scores(rel_scores):
-        maxs = np.max(rel_scores, axis=-1, keepdims=True)
-        mins = np.min(rel_scores, axis=-1, keepdims=True)
-        rel_scores = (rel_scores - mins) / (maxs - mins)
-        return rel_scores
-        
     with mlflow.start_run(run_name=run_name):
         mlflow.log_params(vars(args))
         ndcgs = []
+        common_items_ndcgs = []
         rel_scores_per_item = []
+        ranks_per_item = []
         popularities = []
         recommendations_similarities = []
         for group in tqdm(groups, desc='Group Recommending', total=len(groups)):
             group_interactions = interactions[group]
             interactions_count = group_interactions.sum(axis=1).A1
+            
             
             # add interactions
             if add_interactions > 0:
@@ -126,6 +123,8 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
                     shape=group_interactions.shape
                 )
                 group_interactions += additional_matrix
+                
+                
             
             final_target_ratio = np.mean((interactions_count * args.target_ratio + add_interactions) / (interactions_count + add_interactions))
             inputs, targets = Utils.split_input_target_interactions(group_interactions, final_target_ratio, args.seed)
@@ -135,41 +134,55 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
             
             group_recommendations = group_recommender.recommend_for_group(inputs, args.k, mask)
             group_recommendations = torch.tensor(group_recommendations, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
-            user_rel_scores, user_idxs = elsa.recommend(inputs, None, mask=mask)
+            elsa_scores = elsa.decode(elsa.encode(inputs)) - inputs
+            elsa_scores = torch.where(mask, -torch.inf, elsa_scores)
             
-            sorted_user_idxs = np.argsort(user_idxs, axis=-1)
-            rows = np.arange(user_idxs.shape[0])[:, None]
-            user_rel_scores = normalize_rel_scores(user_rel_scores[rows, sorted_user_idxs])
-            rel_score_per_item = Utils.rel_score_per_item(group_recommendations[0], user_rel_scores)
+            # get top 20 common items
+            common_items_count = 20
+            common_items = torch.zeros(interactions.shape[1], device=device)
+            # at first from targets
+            common_items += (targets.sum(axis=0).squeeze() == args.group_size).float()
+            # then from recommendations
+            need_to_add = int((common_items_count - common_items.sum()).cpu().item())
+            if need_to_add > 0:
+                min_scores = elsa_scores.min(dim=0)[0]
+                top_scores = torch.topk(min_scores, need_to_add).indices
+                common_items += torch.zeros_like(common_items).scatter_(0, top_scores, 1)
+            
+            
+            rank_per_item = Utils.ranks_per_item(group_recommendations[0], elsa_scores.detach().cpu().numpy())
             
             
             ndcg = Utils.evaluate_ndcg_at_k_from_top_indices(group_recommendations, targets, args.k)
+            common_items_ndcg = Utils.evaluate_ndcg_at_k_from_top_indices(group_recommendations[0].unsqueeze(0), common_items.unsqueeze(0), args.k)
             popularity_score = popularity.popularity_score(group_recommendations[0].cpu().numpy())
             recommendations_similarity = Utils.recommendations_similarity(group_recommendations[0], elsa)
             
             
-            rel_scores_per_item.append(rel_score_per_item)
             ndcgs.append(ndcg)
+            common_items_ndcgs.append(common_items_ndcg)
             popularities.append(popularity_score)
+            ranks_per_item.append(rank_per_item)
             recommendations_similarities.append(recommendations_similarity)
             
-
         ndcgs_means = np.mean(ndcgs, axis=1)
         ndcgs_mins = np.min(ndcgs, axis=1)
         ndcgs_maxs = np.max(ndcgs, axis=1)
-        rel_scores_per_item_means = np.mean(rel_scores_per_item, axis=1)
-        rel_scores_per_item_mins = np.min(rel_scores_per_item, axis=1)
+        ranks_per_item_means = np.mean(ranks_per_item, axis=1)
+        ranks_per_item_mins = np.min(ranks_per_item, axis=1)
+        ranks_per_item_maxs = np.max(ranks_per_item, axis=1)
         popularities_means = np.mean(popularities, axis=1)
         
         mlflow.log_metrics({
+            f'CommonItemsNDCG{args.k}/median': float(np.median(common_items_ndcg)),
             f'NDCG{args.k}/mean': float(np.median(ndcgs_means)),
             f'NDCG{args.k}/std': float(np.std(ndcgs_means)),
             f'NDCG{args.k}/min': float(np.median(ndcgs_mins)),
             f'NDCG{args.k}/max': float(np.median(ndcgs_maxs)),
             f'NDCG{args.k}/min:mean': float(np.median(np.divide(ndcgs_mins, ndcgs_means, out=np.zeros_like(ndcgs_mins), where=ndcgs_means!=0))),
-            f'ScorPerItem/mean': float(np.median(rel_scores_per_item_means)),
-            f'ScorPerItem/min': float(np.median(rel_scores_per_item_mins)),
-            f'ScorPerItem/min:mean': float(np.median(rel_scores_per_item_mins/rel_scores_per_item_means)),
+            f'RanksPerItem/mean': float(np.median(ranks_per_item_means)),
+            f'RanksPerItem/min': float(np.median(ranks_per_item_mins)),
+            f'RanksPerItem/min:mean': float(np.median(np.divide(ranks_per_item_mins, ranks_per_item_means, out=np.zeros_like(ranks_per_item_mins), where=ranks_per_item_means!=0))),
             f'Popularity/mean': float(np.median(popularities_means)),
             f'RecommendationsSimilarity/mean': float(np.median(recommendations_similarities)),
         })
