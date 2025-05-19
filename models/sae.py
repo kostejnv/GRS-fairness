@@ -164,11 +164,15 @@ class TopKSAE(SAE):
         self.auxiliary_coef = cfg.get("auxiliary_coef", 0)
         self.contrastive_coef = cfg.get("contrastive_coef", 0)
         self.l1_coef = cfg.get("l1_coef", 0)
+        self.topk_inference = cfg.get("topk_inference", True)
 
     def post_process_embedding(self, e: torch.Tensor) -> torch.Tensor:
+        if self.training or self.topk_inference:
             e_topk = torch.topk(e, self.cfg["k"], dim=-1)
             return torch.zeros_like(e).scatter(-1, e_topk.indices, e_topk.values)
-
+        else:
+            return e
+        
     def total_loss(self, partial_losses: dict) -> torch.Tensor:
         rec_coef, aux_coef, con_coef = self.cfg["reconstruction_coef"], self.cfg["auxiliary_coef"], self.cfg["contrastive_coef"]
         

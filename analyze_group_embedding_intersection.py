@@ -3,7 +3,7 @@ import logging
 import sys
 import torch
 from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
-from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE
+from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE, BatchTopKSAE
 import mlflow
 import numpy as np
 import random
@@ -37,6 +37,7 @@ def parse_arguments():
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--note', type=str, default='', help='Note to add to the experiment')
+    parser.add_argument('--topk_inference', action='store_true', help='Whether to use top-k activation during inference')
     
     return parser.parse_args()
 
@@ -137,6 +138,7 @@ def main(args):
         "auxiliary_coef": sae_auxiliary_coef,
         "contrastive_coef": sae_contrastive_coef,
         "reconstruction_coef": sae_reconstruction_coef,
+        "topk_inference": args.topk_inference,
     }
     
     elsa = ELSA(base_items, base_factors)
@@ -150,6 +152,8 @@ def main(args):
         sae = BasicSAE(base_factors, sae_embedding_dim, cfg).to(device)
     elif sae_params['model'] == 'TopKSAE':
         sae = TopKSAE(base_factors, sae_embedding_dim, cfg).to(device)
+    elif sae_params['model'] == 'BatchTopKSAE':
+        sae = BatchTopKSAE(base_factors, sae_embedding_dim, cfg).to(device)
     else:
         raise ValueError(f'Model {sae_params["model"]} not supported. Check typos.')
     

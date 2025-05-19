@@ -36,8 +36,8 @@ def parse_arguments():
     parser.add_argument('--divergent_groups', type=list, default=[3,5], help='Number of divergent groups')
     parser.add_argument('--random_groups', type=list, default=[3,5], help='Number of random groups')
     # parser.add_argument('--opposing_groups', type=list, default=[[2,1],[3,2],[4,1]], help='Number of opposing groups')
-    parser.add_argument('--user_sample', type=int, default=10_000, help='Number of users to sample')
-    parser.add_argument('--group_count', type=int, default=100, help='Number of groups')
+    parser.add_argument('--user_sample', type=int, default=20_000, help='Number of users to sample')
+    parser.add_argument('--group_count', type=int, default=2_000, help='Number of groups')
     parser.add_argument("--run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
     parser.add_argument("--user_set", type=str, default='train', help="User set to generate groups for (full, test)")
@@ -233,7 +233,10 @@ def main(args):
     logging.info('Generating groups')
     similar_groups = {}
     for group_size in args.similar_groups:
-        group_idxs = [similar_group(group_size) for _ in range(args.group_count)]
+        group_idxs = []
+        for i in range(args.group_count):
+            print(f"Generating similar group {i+1}/{args.group_count}")
+            group_idxs.append(similar_group(group_size))
         similar_groups[group_size] = user_ids[group_idxs]
     logging.info('Similar groups generated')
     
@@ -241,19 +244,28 @@ def main(args):
     
     divergent_groups = {}
     for group_size in args.divergent_groups:
-        group_idxs = [divergent_group(group_size) for _ in range(args.group_count)]
+        group_idxs = []
+        for i in range(args.group_count):
+            print(f"Generating divergent group {i+1}/{args.group_count}")
+            group_idxs.append(divergent_group(group_size))
         divergent_groups[group_size] = user_ids[group_idxs]
     logging.info('Divergent groups generated')
     
     # opposing_groups = {}
     # for group_size in args.opposing_groups:
-    #     group_idxs = [opposing_group(group_size) for _ in range(args.group_count)]
+    #     group_idxs = []
+    #     for i in range(args.group_count):
+    #         print(f"Generating opposing group {i+1}/{args.group_count}")
+    #         group_idxs.append(opposing_group(group_size))
     #     opposing_groups[tuple(group_size)] = user_ids[group_idxs]
     # logging.info('Opposing groups generated')
     
     random_groups = {}
     for group_size in args.random_groups:
-        group_idxs = [random_group(group_size) for _ in range(args.group_count)]
+        group_idxs = []
+        for i in range(args.group_count):
+            print(f"Generating random group {i+1}/{args.group_count}")
+            group_idxs.append(random_group(group_size))
         random_groups[group_size] = user_ids[group_idxs]
     logging.info('Random groups generated')
     

@@ -15,7 +15,7 @@ class ELSAWithSAE(ELSA):
     @torch.no_grad()
     def recommend(self, interaction_batch: torch.Tensor, k: Optional[int], mask_interactions: bool = True, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
         scores = self.decode(self.sae(self.encode(interaction_batch))[0]) - interaction_batch
-        scores = self._normalize_relevance_scores(scores)
+        scores = self.normalize_relevance_scores(scores)
         if k is None:
             k = scores.shape[-1]
         if mask_interactions:

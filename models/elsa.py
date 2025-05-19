@@ -50,7 +50,7 @@ class ELSA(nn.Module):
     @torch.no_grad()
     def recommend(self, interaction_batch: torch.Tensor, k: Optional[int], mask_interactions: bool = True, mask: Optional[torch.Tensor] = None) -> tuple[torch.Tensor, torch.Tensor]:
         scores = self.decode(self.encode(interaction_batch)) - interaction_batch
-        scores = self._normalize_relevance_scores(scores)
+        scores = self.normalize_relevance_scores(scores)
         if k is None:
             k = scores.shape[-1]
         if mask_interactions:
@@ -61,7 +61,7 @@ class ELSA(nn.Module):
         return topk_scores.cpu().numpy(), topk_indices.cpu().numpy()
     
     @staticmethod
-    def _normalize_relevance_scores(relevance_scores: torch.Tensor) -> torch.Tensor:
+    def normalize_relevance_scores(relevance_scores: torch.Tensor) -> torch.Tensor:
         maxs = torch.max(relevance_scores, dim=-1, keepdim=True)[0]
         mins = torch.min(relevance_scores, dim=-1, keepdim=True)[0]
         return (relevance_scores - mins) / (maxs - mins + 1e-8)

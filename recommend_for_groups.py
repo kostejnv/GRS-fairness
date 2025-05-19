@@ -7,6 +7,7 @@ from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE
 from popularity import Popularity
 import mlflow
 import numpy as np
+import time
 import random
 import os
 import datetime
@@ -52,10 +53,11 @@ def parse_arguments():
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
-    parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions from initial interactions')
+    parser.add_argument('--target_ratio', type=float, default=0.5, help='Ratio of target interactions from initial interactions')
     parser.add_argument('--add_interactions', type=int, default=0, help='Number of additional interactions that should be added for each user (used if we have low number of interactions). Note: The final number of target interactions will be target_ratio * interactions + add_interactions')
     parser.add_argument('--k', type=int, default=20, help='Evaluation at k')
     parser.add_argument('--note', type=str, default='', help='Note to add to the experiment')
+    parser.add_argument('--topk_inference', action='store_true', help='Whether to use top-k activation during inference')
     
     return parser.parse_args()
 
@@ -99,10 +101,12 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
         mlflow.log_params(vars(args))
         ndcgs = []
         common_items_ndcgs = []
+        total_time = 0
         rel_scores_per_item = []
         ranks_per_item = []
         popularities = []
         recommendations_similarities = []
+        all_group_recommendations = []
         for group in tqdm(groups, desc='Group Recommending', total=len(groups)):
             group_interactions = interactions[group]
             interactions_count = group_interactions.sum(axis=1).A1
@@ -127,27 +131,33 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
                 
             
             final_target_ratio = np.mean((interactions_count * args.target_ratio + add_interactions) / (interactions_count + add_interactions))
-            inputs, targets = Utils.split_input_target_interactions(group_interactions, final_target_ratio, args.seed)
+            inputs, targets = Utils.split_input_target_interactions_for_groups(group_interactions, final_target_ratio, args.seed)
             # targets += additional_matrix
-            inputs, targets = torch.tensor(inputs.toarray(), device=device, dtype=torch.float32), torch.tensor(targets.toarray(), device=device, dtype=torch.float32)
+            inputs, targets = torch.tensor(inputs, device=device, dtype=torch.float32), torch.tensor(targets, device=device, dtype=torch.float32)
             mask = (inputs.sum(axis=0).squeeze() != 0).unsqueeze(0).repeat(inputs.shape[0], 1)
             
-            group_recommendations = group_recommender.recommend_for_group(inputs, args.k, mask)
+            start = time.perf_counter()
+            group_recommendations = group_recommender.recommend_for_group(inputs, None, mask)
+            finish = time.perf_counter()
+            all_group_recommendations.append(group_recommendations)
+            group_recommendations = group_recommendations[:, :args.k]
+            total_time += finish - start
             group_recommendations = torch.tensor(group_recommendations, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
             elsa_scores = elsa.decode(elsa.encode(inputs)) - inputs
+            elsa_scores = elsa.normalize_relevance_scores(elsa_scores)
             elsa_scores = torch.where(mask, -torch.inf, elsa_scores)
             
-            # get top 20 common items
-            common_items_count = 20
+            # # get top 20 common items
+            # common_items_count = 20
             common_items = torch.zeros(interactions.shape[1], device=device)
             # at first from targets
             common_items += (targets.sum(axis=0).squeeze() == args.group_size).float()
-            # then from recommendations
-            need_to_add = int((common_items_count - common_items.sum()).cpu().item())
-            if need_to_add > 0:
-                min_scores = elsa_scores.min(dim=0)[0]
-                top_scores = torch.topk(min_scores, need_to_add).indices
-                common_items += torch.zeros_like(common_items).scatter_(0, top_scores, 1)
+            # # then from recommendations
+            # need_to_add = int((common_items_count - common_items.sum()).cpu().item())
+            # if need_to_add > 0:
+            #     min_scores = elsa_scores.min(dim=0)[0]
+            #     top_scores = torch.topk(min_scores, need_to_add).indices
+            #     common_items += torch.zeros_like(common_items).scatter_(0, top_scores, 1)
             
             
             rank_per_item = Utils.ranks_per_item(group_recommendations[0], elsa_scores.detach().cpu().numpy())
@@ -173,6 +183,12 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
         ranks_per_item_maxs = np.max(ranks_per_item, axis=1)
         popularities_means = np.mean(popularities, axis=1)
         
+        temp_path = './recommendations.npy'
+        np.save(temp_path, np.array(all_group_recommendations))
+        mlflow.log_artifact(temp_path)
+        os.remove(temp_path)
+        logging.info('Recommendations successfully saved')
+        
         mlflow.log_metrics({
             f'CommonItemsNDCG{args.k}/median': float(np.median(common_items_ndcg)),
             f'NDCG{args.k}/mean': float(np.median(ndcgs_means)),
@@ -185,6 +201,7 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
             f'RanksPerItem/min:mean': float(np.median(np.divide(ranks_per_item_mins, ranks_per_item_means, out=np.zeros_like(ranks_per_item_mins), where=ranks_per_item_means!=0))),
             f'Popularity/mean': float(np.median(popularities_means)),
             f'RecommendationsSimilarity/mean': float(np.median(recommendations_similarities)),
+            f'Time/mean': float(total_time / len(groups)),
         })
         
 
@@ -265,6 +282,7 @@ def main(args):
             "auxiliary_coef": sae_auxiliary_coef,
             "contrastive_coef": sae_contrastive_coef,
             "reconstruction_coef": sae_reconstruction_coef,
+            "topk_inference": args.topk_inference,
         }
         if sae_params['model'] == 'BasicSAE':
             sae = BasicSAE(base_factors, sae_embedding_dim, cfg).to(device)

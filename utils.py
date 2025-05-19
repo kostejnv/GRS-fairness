@@ -40,6 +40,29 @@ class Utils:
         inputs.eliminate_zeros()
         targets.eliminate_zeros()
         return inputs, targets
+    
+    @staticmethod
+    def split_input_target_interactions_for_groups(user_item_csr: sp.csr_matrix, target_ratio: float, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
+        np.random.seed(seed)
+        
+        interaction_length = user_item_csr.shape[1]
+        target_items_count = int(np.ceil(interaction_length * target_ratio))
+        input_items_count = interaction_length - target_items_count
+        # create a random mask where target_ratio of the interactions are set to True
+        target_mask = np.random.random(interaction_length) < target_ratio
+        target_mask = np.tile(target_mask, (user_item_csr.shape[0], 1))
+        
+        # target_mask = np.concatenate(
+        #     [
+        #         np.random.permutation(np.array([True] * int(np.ceil(row_nnz * target_ratio)) + [False] * int((row_nnz - np.ceil(row_nnz * target_ratio)))))
+        #         for row_nnz in np.diff(user_item_csr.indptr)
+        #     ]
+        # )
+        inputs = user_item_csr.todense().copy()
+        targets = user_item_csr.todense().copy()
+        inputs[target_mask] = 0
+        targets[~target_mask] = 0
+        return inputs, targets
 
     @staticmethod
     def _recall_at_k_batch(batch_topk_indices: torch.Tensor, batch_target: torch.Tensor, k: int) -> torch.Tensor:
