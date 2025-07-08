@@ -120,6 +120,7 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
             for batched_interactions in pbar: # train one batch
                 if args.contrastive_coef > 0:
                     positive_batch = sampled_interactions(batched_interactions, ratio=0.5)
+                    positive_batch += (torch.rand_like(positive_batch) < 0.1).float()
                     positive_batch = base_model.encode(positive_batch).detach()
                 else:
                     positive_batch = None

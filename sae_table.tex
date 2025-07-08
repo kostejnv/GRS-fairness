@@ -1,0 +1,23 @@
+\begin{table}
+\caption{Table showing the performance of different recommendation approaches on the LastFM1k dataset.'G/mean' shows the percentage change in mean NDCG@20 using ground-truth recommendations seen by all group members. 'U/min' shows the change in the mean of the minimum NDCG@20 across group members. 'U/mean' shows the change in the mean of the average NDCG@20 across group members. 'Pop' shows the change in the mean popularity of recommended items.}
+\label{tab:other:lastfm}
+\begin{tabular}{l|rrrr|rrrr|rrrr}
+\toprule
+Approach & \multicolumn{4}{r}{sim} & \multicolumn{4}{r}{random} & \multicolumn{4}{r}{outlier} \\
+ & G/mean & U/min & U/mean & Pop & G/mean & U/min & U/mean & Pop & G/mean & U/min & U/mean & Pop \\
+\midrule
+SAE-Avg & \underline{0.605} & \underline{0.647} & \underline{0.812} & 0.571 & \textbf{0.527} & \underline{0.561} & \textbf{0.761} & 0.639 & \underline{0.450} & \underline{0.488} & \textbf{0.729} & 0.660 \\
+SAE-ComF & 0.586 & 0.634 & 0.803 & 0.575 & 0.505 & 0.544 & 0.750 & 0.667 & 0.428 & 0.472 & 0.715 & 0.649 \\
+SAE-Max & \textbf{0.605} & \textbf{0.650} & \textbf{0.812} & 0.569 & \underline{0.527} & \textbf{0.567} & \underline{0.761} & 0.630 & \textbf{0.454} & \textbf{0.509} & 0.725 & 0.628 \\
+SAE-TopK & 0.601 & 0.643 & 0.810 & 0.562 & 0.517 & 0.557 & 0.756 & 0.636 & 0.409 & 0.447 & 0.715 & 0.584 \\
+SAE-WCom & 0.594 & 0.640 & 0.807 & 0.567 & 0.515 & 0.552 & 0.755 & 0.658 & 0.440 & 0.471 & \underline{0.727} & 0.668 \\
+ELSA & 0.560 & 0.599 & 0.795 & 0.564 & 0.434 & 0.467 & 0.720 & 0.608 & 0.300 & 0.327 & 0.657 & 0.544 \\
+ELSA_INT & 0.472 & 0.528 & 0.749 & \textbf{0.487} & 0.310 & 0.351 & 0.635 & \textbf{0.482} & 0.160 & 0.196 & 0.540 & \textbf{0.379} \\
+ADD & 0.591 & 0.638 & 0.806 & 0.567 & 0.502 & 0.544 & 0.749 & 0.631 & 0.400 & 0.442 & 0.710 & 0.587 \\
+LMS & 0.577 & 0.621 & 0.791 & 0.553 & 0.459 & 0.504 & 0.702 & 0.590 & 0.346 & 0.398 & 0.622 & 0.521 \\
+MPL & 0.473 & 0.568 & 0.741 & \underline{0.524} & 0.318 & 0.450 & 0.635 & \underline{0.516} & 0.190 & 0.368 & 0.564 & \underline{0.435} \\
+EPFuzzDA & 0.586 & 0.638 & 0.801 & 0.565 & 0.489 & 0.545 & 0.731 & 0.611 & 0.386 & 0.469 & 0.673 & 0.558 \\
+GFAR & 0.521 & 0.608 & 0.766 & 0.541 & 0.366 & 0.500 & 0.665 & 0.542 & 0.235 & 0.427 & 0.601 & 0.471 \\
+\bottomrule
+\end{tabular}
+\end{table}

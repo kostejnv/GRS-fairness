@@ -33,6 +33,7 @@ def parse_arguments():
     parser.add_argument("--sae_run_id", type=str, help="Run ID of the analyzed SAE model")
     parser.add_argument("--user_set", type=str, default='full', help="User set to analyze (full, test, train)")
     parser.add_argument("--user_sample", type=int, default=5_000, help="Number of users to sample")
+    parser.add_argument("--topk_inference", action='store_true', help="Use top-k activation for inference")
     # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
@@ -125,6 +126,7 @@ def main(args):
         "auxiliary_coef": sae_auxiliary_coef,
         "contrastive_coef": sae_contrastive_coef,
         "reconstruction_coef": sae_reconstruction_coef,
+        "topk_inference": args.topk_inference,
     }
     
     elsa = ELSA(base_items, base_factors)
@@ -170,11 +172,19 @@ def main(args):
             batches_embeddings.append(batch_embeddings.detach().to('cpu'))
         user_embeddings_with_zeros = torch.cat(batches_embeddings)
         
+        sae.topk_inference = False
+        batches_embeddings_without_topk_inference = []
+        for batch in tqdm.tqdm(interactions_batches, desc='Creating user embeddings without top-k inference'):
+            batch_embeddings = sae.encode(elsa.encode(batch))[0]
+            batches_embeddings_without_topk_inference.append(batch_embeddings.detach().to('cpu'))
+        user_embeddings_without_topk_inference = torch.cat(batches_embeddings_without_topk_inference)
+        
         # filter all zero values
         user_embeddings_tmp = user_embeddings_with_zeros.numpy().tolist()
         user_embeddings_tmp = [[x for x in row if x != 0] for row in user_embeddings_tmp]
+        max_length = max(len(row) for row in user_embeddings_tmp)
         for row in user_embeddings_tmp:
-            row.extend([0.0] * (int(args.top_k) - len(row)))
+            row.extend([0.0] * (int(max_length) - len(row)))
         user_embeddings = torch.tensor(user_embeddings_tmp, device=device)
         
         
@@ -187,7 +197,9 @@ def main(args):
         
         # for plotting
         feature_activation = torch.sum(user_embeddings_with_zeros != 0, dim=0) / user_embeddings.shape[0]
-        sum_embeddings = torch.sum(user_embeddings, dim=1)
+        active_features = torch.sum(user_embeddings_with_zeros != 0, dim=1)
+        embeddings_norms = torch.norm(user_embeddings_with_zeros, dim=1)
+        embeddings_norms_without_topk_inference = torch.norm(user_embeddings_without_topk_inference, dim=1)
         
         mlflow.log_metrics({
             'dead_neurons/count': int(dead_neurons),
@@ -222,6 +234,12 @@ def main(args):
             'median_embedding/mean': float(torch.mean(median_embedding)),
             'median_embedding/std': float(torch.std(median_embedding)),
             'median_embedding/median': float(torch.median(median_embedding)),
+            
+            'active_features/max': float(torch.max(active_features)),
+            'active_features/min': float(torch.min(active_features)),
+            'active_features/mean': float(torch.mean(active_features.float())),
+            'active_features/std': float(torch.std(active_features.float())),
+            'active_features/median': float(torch.median(active_features.float())),
         })
         
         
@@ -238,16 +256,54 @@ def main(args):
         
         # embedding sum histogram
         fig = go.Figure()
-        fig.add_trace(go.Histogram(x=sum_embeddings.to('cpu').detach().numpy()))
-        fig.update_layout(title_text='Embedding Sum Histogram', xaxis_title='Value', yaxis_title='Frequency')
-        mlflow.log_figure(fig, 'embedding_sum_histogram.html')
-        
+        fig.add_trace(go.Histogram(x=embeddings_norms.to('cpu').detach().numpy()))
+        fig.update_layout(title_text='Embedding Norm Histogram', xaxis_title='Value', yaxis_title='Frequency')
+        mlflow.log_figure(fig, 'embedding_norm_histogram.html')
+
         # feature activation histogram
         fig = go.Figure()
         fig.add_trace(go.Histogram(x=feature_activation.to('cpu').detach().numpy()))
         fig.update_layout(title_text='Feature Activation Histogram', xaxis_title='Value', yaxis_title='Frequency')
         mlflow.log_figure(fig, 'feature_activation_histogram.html')
         
+        # active features histogram (matplotlib)
+        import matplotlib.pyplot as plt
+        
+        plt.rcParams.update({
+            "text.usetex": True,          # Use LaTeX to render text
+            "font.family": "serif",       # Use serif fonts (matches typical LaTeX style)
+            "pgf.rcfonts": False,         # Keep consistent font rendering
+        })
+
+        fig, ax = plt.subplots(figsize=(6, 4))
+        ax.hist(active_features.to('cpu').detach().numpy(), bins=30)
+        ax.set_title('Active Features Histogram')
+        ax.set_xlabel('Value')
+        ax.set_ylabel('Frequency')
+        plt.tight_layout()
+        fig.savefig('histogram.pgf')
+        fig.savefig('active_features_histogram.pdf')
+        plt.close()
+        
+        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+        ax[0].hist(embeddings_norms.to('cpu').detach().numpy(), bins=30)
+        ax[0].set_title('Embedding Norm Histogram')
+        ax[0].set_xlabel('Value')
+        ax[0].set_ylabel('Frequency')
+
+        ax[1].hist(embeddings_norms_without_topk_inference.to('cpu').detach().numpy(), bins=30)
+        ax[1].set_title('Embedding Norm without Top-K Activation Histogram')
+        ax[1].set_xlabel('Value')
+        ax[1].set_ylabel('Frequency')
+        plt.tight_layout()
+        fig.savefig('embedding_norms_histogram.pdf')
+        plt.close()
+        
+        
+        logging.info('Norm mean: %f', torch.mean(embeddings_norms).item())
+        logging.info('Norm std: %f', torch.std(embeddings_norms).item())
+        logging.info('Norm without top-k mean: %f', torch.mean(embeddings_norms_without_topk_inference).item())
+        logging.info('Norm without top-k std: %f', torch.std(embeddings_norms_without_topk_inference).item())
 
 if __name__ == '__main__':
     args = parse_arguments()

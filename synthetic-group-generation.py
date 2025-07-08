@@ -27,20 +27,20 @@ def parse_arguments():
     parser = argparse.ArgumentParser() # TODO: Add description
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     # dataset
-    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
+    parser.add_argument('--dataset', type=str, default='MovieLens', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--td_quantile', type=float, default=0.75, help='Threshold quantile for similarity')
     parser.add_argument('--ts_quantile', type=float, default=0.25, help='Threshold quantile for divergence')
-    parser.add_argument('--similar_groups', type=list, default=[3,5], help='Number of similar groups')
-    parser.add_argument('--divergent_groups', type=list, default=[3,5], help='Number of divergent groups')
-    parser.add_argument('--random_groups', type=list, default=[3,5], help='Number of random groups')
-    # parser.add_argument('--opposing_groups', type=list, default=[[2,1],[3,2],[4,1]], help='Number of opposing groups')
+    parser.add_argument('--similar_groups', type=list, default=[3], help='Number of similar groups')
+    parser.add_argument('--divergent_groups', type=list, default=[], help='Number of divergent groups')
+    parser.add_argument('--random_groups', type=list, default=[3], help='Number of random groups')
+    parser.add_argument('--opposing_groups', type=list, default=[[2,1]], help='Number of opposing groups')
     parser.add_argument('--user_sample', type=int, default=20_000, help='Number of users to sample')
-    parser.add_argument('--group_count', type=int, default=2_000, help='Number of groups')
+    parser.add_argument('--group_count', type=int, default=100_000, help='Number of groups')
     parser.add_argument("--run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
-    parser.add_argument("--user_set", type=str, default='train', help="User set to generate groups for (full, test)")
+    parser.add_argument("--user_set", type=str, default='test', help="User set to generate groups for (full, test)")
     
     return parser.parse_args()
 
@@ -82,12 +82,16 @@ def main(args):
     
     # load interactions
     if args.user_set == 'full':
-        user_sample = min(args.user_sample, len(dataset_loader.csr_interactions))
-        user_idx = np.random.permutation(len(dataset_loader.csr_interactions))[:user_sample]
+        user_sample = min(args.user_sample, dataset_loader.csr_interactions.shape[0])
+        user_idx = np.random.permutation(dataset_loader.csr_interactions.shape[0])[:user_sample]
         csr_interactions = dataset_loader.csr_interactions[user_idx]
     elif args.user_set == 'train':
         user_sample = min(args.user_sample, len(dataset_loader.train_idx))
         user_idx = np.random.choice(dataset_loader.train_idx, user_sample, replace=False)
+        csr_interactions = dataset_loader.csr_interactions[user_idx]
+    elif args.user_set == 'valid':
+        user_sample = min(args.user_sample, len(dataset_loader.valid_idx))
+        user_idx = np.random.choice(dataset_loader.valid_idx, user_sample, replace=False)
         csr_interactions = dataset_loader.csr_interactions[user_idx]
     elif args.user_set == 'test':
         user_sample = min(args.user_sample, len(dataset_loader.test_idx))
@@ -242,23 +246,23 @@ def main(args):
     
     
     
-    divergent_groups = {}
-    for group_size in args.divergent_groups:
-        group_idxs = []
-        for i in range(args.group_count):
-            print(f"Generating divergent group {i+1}/{args.group_count}")
-            group_idxs.append(divergent_group(group_size))
-        divergent_groups[group_size] = user_ids[group_idxs]
-    logging.info('Divergent groups generated')
-    
-    # opposing_groups = {}
-    # for group_size in args.opposing_groups:
+    # divergent_groups = {}
+    # for group_size in args.divergent_groups:
     #     group_idxs = []
     #     for i in range(args.group_count):
-    #         print(f"Generating opposing group {i+1}/{args.group_count}")
-    #         group_idxs.append(opposing_group(group_size))
-    #     opposing_groups[tuple(group_size)] = user_ids[group_idxs]
-    # logging.info('Opposing groups generated')
+    #         print(f"Generating divergent group {i+1}/{args.group_count}")
+    #         group_idxs.append(divergent_group(group_size))
+    #     divergent_groups[group_size] = user_ids[group_idxs]
+    # logging.info('Divergent groups generated')
+    
+    opposing_groups = {}
+    for group_size in args.opposing_groups:
+        group_idxs = []
+        for i in range(args.group_count):
+            print(f"Generating opposing group {i+1}/{args.group_count}")
+            group_idxs.append(opposing_group(group_size))
+        opposing_groups[tuple(group_size)] = user_ids[group_idxs]
+    logging.info('Opposing groups generated')
     
     random_groups = {}
     for group_size in args.random_groups:
@@ -277,12 +281,12 @@ def main(args):
     for group_size, groups in similar_groups.items():
         np.save(f'{out_path}/similar_{group_size}.npy', np.array(groups))
         
-    for group_size, groups in divergent_groups.items():
-        np.save(f'{out_path}/divergent_{group_size}.npy', np.array(groups))
+    # for group_size, groups in divergent_groups.items():
+    #     np.save(f'{out_path}/divergent_{group_size}.npy', np.array(groups))
         
-    # for group_size, groups in opposing_groups.items():
-    #     np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}.npy', np.array(groups))
-    
+    for group_size, groups in opposing_groups.items():
+        np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}.npy', np.array(groups))
+
     for group_size, groups in random_groups.items():
         np.save(f'{out_path}/random_{group_size}.npy', np.array(groups))
         

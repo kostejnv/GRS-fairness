@@ -8,7 +8,7 @@ base_model_run_id=a54e61982dc24b0da7b53e3b7d1d5ac8
 
 group_types=(
     'sim'
-    # 'div'
+    # 'outlier'
     # 'random'
 )
 
