@@ -42,6 +42,9 @@ def parse_arguments():
     parser.add_argument("--SAE_fusion_strategy", type=str, default='common_features', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.")
     parser.add_argument("--normalize_users_embeddings", action='store_true', help="Whether to normalize user embeddings before recommending to make for them similar weight.")
     
+    # configurations
+    parser.add_argument('--topk_inference', action='store_true', help='Whether to use top-k activation during inference')
+    
     # group parameters
     parser.add_argument("--group_type", type=str, default='sim', help="Type of group to analyze. Options: 'sim', 'outlier', '21'")
     parser.add_argument("--group_set", type=str, default='valid', help="Set of groups to analyze. Options: 'valid', 'test'")
@@ -54,7 +57,6 @@ def parse_arguments():
     parser.add_argument('--target_ratio', type=float, default=0.5, help='Ratio of target interactions from initial interactions')
     parser.add_argument('--k', type=int, default=20, help='Evaluation at k')
     parser.add_argument('--note', type=str, default='', help='Note to add to the experiment')
-    parser.add_argument('--topk_inference', action='store_true', help='Whether to use top-k activation during inference')
     
     return parser.parse_args()
 
