@@ -37,117 +37,79 @@ class BaselinesAggregator(AggregationStrategy):
         super().__init__(aggregation_strategy)
     
     def generate_group_recommendations_for_group(self, group_ratings, recommendations_number):
-        # aggregate using least misery strategy
-        aggregated_df = group_ratings.groupby('item').agg({"predicted_rating": ["sum", "prod", "min", "max"]})
-        aggregated_df = aggregated_df["predicted_rating"].reset_index()
-        # additive
-
         if self.name == "ADD":
-            add_df = aggregated_df.sort_values(by="sum", ascending=False).reset_index()[['item', 'sum']]
-            recommendation_list = list(add_df.head(recommendations_number)['item'])
+            agg_df = group_ratings.groupby('item')['predicted_rating'].sum().reset_index(name='score')
         elif self.name == "MUL":
-            mul_df = aggregated_df.sort_values(by="prod", ascending=False).reset_index()[['item', 'prod']]
-            recommendation_list = list(mul_df.head(recommendations_number)['item'])
+            agg_df = group_ratings.groupby('item')['predicted_rating'].prod().reset_index(name='score')
         elif self.name == "LMS":
-            lms_df = aggregated_df.sort_values(by="min", ascending=False).reset_index()[['item', 'min']]
-            recommendation_list = list(lms_df.head(recommendations_number)['item'])
+            agg_df = group_ratings.groupby('item')['predicted_rating'].min().reset_index(name='score')
         elif self.name == "MPL":
-            mpl_df = aggregated_df.sort_values(by="max", ascending=False).reset_index()[['item', 'max']]
-            recommendation_list = list(mpl_df.head(recommendations_number)['item'])
+            agg_df = group_ratings.groupby('item')['predicted_rating'].max().reset_index(name='score')
+        else:
+            raise ValueError(f"Unknown aggregation strategy: {self.name}")
+
+        recommendation_list = list(
+            agg_df.sort_values(by="score", ascending=False).head(recommendations_number)['item']
+        )
         return {self.name: recommendation_list}
 
 
+from scipy.stats import rankdata
+import numpy as np
+
 class GFARAggregator(AggregationStrategy):
-    # implements GFAR aggregation algorithm. For more details visit https://dl.acm.org/doi/10.1145/3383313.3412232
     def __init__(self):
         super().__init__("GFAR")
 
-    # create an index-wise top-k selection w.r.t. list of scores
-    def select_top_n_idx(self, score_df, top_n, top='max', sort=True):
-        if top != 'max' and top != 'min':
-            raise ValueError('top must be either Max or Min')
-        if top == 'max':
-            score_df.loc[score_df.index, "predicted_rating_rev"] = -score_df["predicted_rating"]
+    # ---------- helpers --------------------------------------------------
+    @staticmethod
+    def _top_k(df, k):
+        """Return k rows with highest predicted_rating."""
+        return df.nlargest(k, 'predicted_rating')
 
-        select_top_n = min(top_n, len(score_df)-1)
-        top_n_ind = np.argpartition(score_df.predicted_rating_rev, select_top_n)[:select_top_n]
-        top_n_df = score_df.iloc[top_n_ind]
+    @staticmethod
+    def _borda_scores(top_df):
+        """Highest rating ⇒ highest Borda weight."""
+        k = len(top_df)
+        # rankdata on the *negative* turns descending ordering into ranks 1…k
+        return k - rankdata(-top_df["predicted_rating"].values, method="ordinal") + 1
 
-        if sort:
-            return top_n_df.sort_values("predicted_rating_rev")
+    # ---------- core GFAR ------------------------------------------------
+    def gfar_algorithm(self, ratings, top_n, max_rel_items=20):
+        df = ratings.copy()
+        df["p_rel"] = 0.0              # P(item relevant for this user)
+        df["p_none"] = 1.0             # P(user still unsatisfied)
 
-        return top_n_df
+        users = df.user.unique()
 
-    # borda count that is limited only to top-max_rel_items, if you are not in the top-max_rel_items, you get 0
-    def get_borda_rel(self, candidate_group_items_df, max_rel_items):
-        from scipy.stats import rankdata
-        top_records = self.select_top_n_idx(candidate_group_items_df, max_rel_items, top='max', sort=False)
+        # (1) Per-user relevance probabilities
+        for u in users:
+            sub = df[df.user == u]
+            top = self._top_k(sub, max_rel_items)
+            borda = self._borda_scores(top)
+            df.loc[top.index, "p_rel"] = borda / borda.sum()   # normalise
 
-        rel_borda = rankdata(top_records["predicted_rating_rev"].values, method='max')
-        # candidate_group_items_df.loc[top_records.index,"borda_score"] = rel_borda
-        return (top_records.index, rel_borda)
+        slate = []
+        for _ in range(top_n):
+            # (2) Marginal gain of each candidate item
+            df["gain"] = df.p_rel * df.p_none
+            gains = df.groupby("item")["gain"].sum()
 
-    # runs GFAR algorithm for one group
-    def gfar_algorithm(self, group_ratings, top_n: int, relevant_max_items: int, n_candidates: int):
+            item_id = gains.idxmax()          # **fixed** (was .argmax())
+            slate.append(item_id)
 
-        group_members = group_ratings.user.unique()
-        group_size = len(group_members)
+            # (3) Update P(user still none)
+            hits = df[df.item == item_id]
+            for uid, p in zip(hits.user, hits.p_rel):
+                df.loc[df.user == uid, "p_none"] *= (1 - p)
 
-        localDF = group_ratings.copy()
-        localDF["predicted_rating_rev"] = 0.0
-        localDF["borda_score"] = 0.0
-        localDF["p_relevant"] = 0.0
-        localDF["prob_selected_not_relevant"] = 1.0
-        localDF["marginal_gain"] = 0.0
+            # (4) Remove chosen item
+            df = df[df.item != item_id]
 
-        # filter-out completely irrelevant items to decrease computational complexity
-        # top_candidates_ids_per_member = []
-        # for uid in  group_members:
-        #    per_user_ratings = group_ratings.loc[group_ratings.user == uid]
-        #    top_candidates_ids_per_member.append(select_top_n_idx(per_user_ratings, n_candidates, sort=False)["item"].values)
+        return slate
 
-        # top_candidates_idx = np.unique(np.array(top_candidates_ids_per_member))
-
-        # get the candidate group items for each member
-        # candidate_group_ratings = group_ratings.loc[group_ratings["items"].isin(top_candidates_idx)]
-
-        for uid in group_members:
-            per_user_candidates = localDF.loc[localDF.user == uid]
-            borda_index, borda_score = self.get_borda_rel(per_user_candidates, relevant_max_items)
-            localDF.loc[borda_index, "borda_score"] = borda_score
-
-            total_relevance_for_users = localDF.loc[borda_index, "borda_score"].sum()
-            localDF.loc[borda_index, "p_relevant"] = localDF.loc[borda_index, "borda_score"] / total_relevance_for_users
-
-        selected_items = []
-
-        # top-n times select one item to the final list
-        for i in range(top_n):
-            localDF.loc[:, "marginal_gain"] = localDF.p_relevant * localDF.prob_selected_not_relevant
-            item_marginal_gain = localDF.groupby("item")["marginal_gain"].sum()
-            # select the item with the highest marginal gain
-            item_pos = item_marginal_gain.argmax()
-            item_id = item_marginal_gain.index[item_pos]
-            selected_items.append(item_id)
-
-            # update the probability of selected items not being relevant
-            for uid in group_members:
-                winner_row = localDF.loc[((localDF["item"] == item_id) & (localDF["user"] == uid))]
-
-                # only update if any record for user-item was found
-                if winner_row.shape[0] > 0:
-                    p_rel = winner_row["p_relevant"].values[0]
-                    p_not_selected = winner_row["prob_selected_not_relevant"].values[0] * (1 - p_rel)
-
-                    localDF.loc[localDF["user"] == uid, "prob_selected_not_relevant"] = p_not_selected
-
-            # remove winning item from the list of candidates
-            localDF.drop(localDF.loc[localDF["item"] == item_id].index, inplace=True)
-        return selected_items
-
-    def generate_group_recommendations_for_group(self, group_ratings, recommendations_number):
-        selected_items = self.gfar_algorithm(group_ratings, recommendations_number, 20, 500)
-        return {"GFAR": selected_items}
+    def generate_group_recommendations_for_group(self, group_ratings, k):
+        return {"GFAR": self.gfar_algorithm(group_ratings, k)}
 
 
 class EPFuzzDAAggregator(AggregationStrategy):

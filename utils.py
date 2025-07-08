@@ -51,13 +51,7 @@ class Utils:
         # create a random mask where target_ratio of the interactions are set to True
         target_mask = np.random.random(interaction_length) < target_ratio
         target_mask = np.tile(target_mask, (user_item_csr.shape[0], 1))
-        
-        # target_mask = np.concatenate(
-        #     [
-        #         np.random.permutation(np.array([True] * int(np.ceil(row_nnz * target_ratio)) + [False] * int((row_nnz - np.ceil(row_nnz * target_ratio)))))
-        #         for row_nnz in np.diff(user_item_csr.indptr)
-        #     ]
-        # )
+
         inputs = user_item_csr.todense().copy()
         targets = user_item_csr.todense().copy()
         inputs[target_mask] = 0
@@ -70,6 +64,22 @@ class Utils:
         predicted_batch = torch.zeros_like(target).scatter(1, batch_topk_indices, torch.ones_like(batch_topk_indices, dtype=bool))
         # recall formula from https://arxiv.org/pdf/1802.05814
         r = (predicted_batch & target).sum(axis=1) / torch.minimum(target.sum(axis=1), torch.ones_like(target.sum(axis=1)) * k)
+        return r
+    
+    @staticmethod
+    def _precision_at_k_batch(batch_topk_indices: torch.Tensor, batch_target: torch.Tensor, k: int) -> torch.Tensor:
+        target = batch_target.bool()
+        predicted_batch = torch.zeros_like(target).scatter(1, batch_topk_indices, torch.ones_like(batch_topk_indices, dtype=bool))
+        # recall formula from https://arxiv.org/pdf/1802.05814
+        r = (predicted_batch & target).sum(axis=1) / (torch.ones_like(target.sum(axis=1)) * k)
+        return r
+    
+    @staticmethod
+    def _hitrate_at_k_batch(batch_topk_indices: torch.Tensor, batch_target: torch.Tensor, k: int) -> torch.Tensor:
+        target = batch_target.bool()
+        predicted_batch = torch.zeros_like(target).scatter(1, batch_topk_indices, torch.ones_like(batch_topk_indices, dtype=bool))
+        # recall formula from https://arxiv.org/pdf/1802.05814
+        r = ((predicted_batch & target).sum(axis=1) > 1).float()
         return r
     
     @staticmethod
@@ -122,6 +132,18 @@ class Utils:
         return Utils._recall_at_k_batch(top_indices, target_batch, k).detach().cpu().numpy()
     
     @staticmethod
+    def evaluate_precision_at_k_from_top_indices(top_indices: np.ndarray, target_batch: torch.Tensor, k: Optional[int]) -> np.ndarray:
+        if k is None:
+            k = top_indices.shape[-1]
+        return Utils._precision_at_k_batch(top_indices, target_batch, k).detach().cpu().numpy()
+    
+    @staticmethod
+    def evaluate_hitrate_at_k_from_top_indices(top_indices: np.ndarray, target_batch: torch.Tensor, k: Optional[int]) -> np.ndarray:
+        if k is None:
+            k = top_indices.shape[-1]
+        return Utils._hitrate_at_k_batch(top_indices, target_batch, k).detach().cpu().numpy()
+    
+    @staticmethod
     def ndcg_at_k(topk_batch: torch.Tensor, target_batch: torch.Tensor, k: int) -> torch.Tensor:
         target_batch = target_batch.bool()
         relevance = target_batch.gather(1, topk_batch).float()
@@ -136,7 +158,7 @@ class Utils:
         idcg = (ideal_gains / ideal_discounts).sum(dim=1)
         idcg[idcg == 0] = 1
         # nDCG@k
-        return dcg / idcg
+        return dcg / idcg, dcg, idcg
 
     @staticmethod
     # implementation from: https://github.com/matospiso/Disentangling-user-embeddings-using-SAE
@@ -149,10 +171,10 @@ class Utils:
     
     @staticmethod
     def evaluate_ndcg_at_k_from_top_indices(top_indices: np.ndarray, target_batch: torch.Tensor, k: Optional[int]) -> np.ndarray:
-        ndcg = []
         if k is None:
             k = top_indices.shape[-1]
-        return Utils.ndcg_at_k(top_indices, target_batch, k).detach().cpu().numpy()
+        ndcg, dcg, idcg = Utils.ndcg_at_k(top_indices, target_batch, k)
+        return ndcg.detach().cpu().numpy(), dcg.detach().cpu().numpy(), idcg.detach().cpu().numpy()
     
     @staticmethod
     def evaluate_dense_encoder(model: ELSA, split_csr: sp.csr_matrix, target_ratio: float, batch_size: int, device, seed: int = 42) -> dict[str, float]:

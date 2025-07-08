@@ -1,5 +1,6 @@
 import argparse
 import logging
+import pickle
 import sys
 import torch
 from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
@@ -16,7 +17,7 @@ from utils import Utils
 from copy import deepcopy
 from group_recommenders import BaseGroupRecommender
 import scipy.sparse as sp
-from group_recommenders import AggregationStrategy, GRSGroupRecommender, FusionStrategy, FusionStrategyType, SaeGroupRecommender, ElsaAllInOneGroupRecommender, CombineFeaturesStrategy, CombineFeaturesStrategyType, ElsaGroupRecommender
+from group_recommenders import AggregationStrategy, GRSGroupRecommender, FusionStrategy, FusionStrategyType, SaeGroupRecommender, ElsaAllInOneGroupRecommender, CombineFeaturesStrategy, CombineFeaturesStrategyType, ElsaGroupRecommender, PopularGroupRecommender
 
 TIMESTAMP = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
@@ -32,7 +33,7 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
+    parser.add_argument('--dataset', type=str, default='MovieLens', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
     # model parameters
     parser.add_argument("--sae_run_id", type=str, default='e6f874617a574800b8d5a11254711223', help="Run ID of the analyzed SAE model")
     parser.add_argument("--use_base_model_from_sae", action='store_true', help="Use base model from SAE run")
@@ -44,25 +45,26 @@ def parse_arguments():
     parser.add_argument("--combine_features_strategy", type=str, default='none', help="Strategy to combinee features.")
     parser.add_argument("--combine_features_percentile", type=float, default=0.50, help="Aplied only if combine_features_strategy is not 'percentile'. Percentile to use for combine features.")
     parser.add_argument("--combine_features_topk", type=int, default=100, help="Aplied only if combine_features_strategy is 'topk'. combinee top_k features for each feature.")
+    parser.add_argument("--normalize_users_embeddings", action='store_true', help="Whether to normalize user embeddings before recommending to make for them similar weight.")
     
     # group parameters
-    parser.add_argument("--group_type", type=str, default='sim', help="Type of group to analyze. Options: 'sim', 'div', '21'")
+    parser.add_argument("--group_type", type=str, default='sim', help="Type of group to analyze. Options: 'sim', 'outlier', '21'")
+    parser.add_argument("--group_set", type=str, default='valid', help="Set of groups to analyze. Options: 'valid', 'test'")
     parser.add_argument("--group_size", type=int, default=3, help="Size of the group to analyze")
-    parser.add_argument("--user_set", type=str, default='train', help="User set from which the groups where sampled (full, test, train)")
+    parser.add_argument("--user_set", type=str, default='valid', help="User set from which the groups where sampled (full, test, train)")
     # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--target_ratio', type=float, default=0.5, help='Ratio of target interactions from initial interactions')
-    parser.add_argument('--add_interactions', type=int, default=0, help='Number of additional interactions that should be added for each user (used if we have low number of interactions). Note: The final number of target interactions will be target_ratio * interactions + add_interactions')
     parser.add_argument('--k', type=int, default=20, help='Evaluation at k')
     parser.add_argument('--note', type=str, default='', help='Note to add to the experiment')
     parser.add_argument('--topk_inference', action='store_true', help='Whether to use top-k activation during inference')
     
     return parser.parse_args()
 
-GROUP_TYPES = ['sim', 'div', '21', 'random']
-RECOMMENDER_STRATEGIES = ['SAE', 'ADD', 'LMS', 'GFAR', 'EPFuzzDA', 'MPL', 'ELSA', 'ELSA_INT']
+GROUP_TYPES = ['sim', 'outlier', 'random']
+RECOMMENDER_STRATEGIES = ['SAE', 'ADD', 'LMS', 'GFAR', 'EPFuzzDA', 'MPL', 'ELSA', 'ELSA_INT', 'POPULAR']
 SAE_FUSION_STRATEGIES = [strategy.value for strategy in FusionStrategyType]
 COMBINE_FEATURES_STRATEGIES = [strategy.value for strategy in CombineFeaturesStrategyType]
 GROUP_SIZES = [3,5]
@@ -70,19 +72,16 @@ GROUP_SIZES = [3,5]
 def get_groups_path(dataset, group_type, group_size, user_set):
     path = f'data/synthetic_groups/{dataset}/{user_set}/'
     if group_type == 'sim':
-        filename = f'similar_{group_size}.npy'
-    elif group_type == 'div':
-        filename = f'divergent_{group_size}.npy'
-    elif group_type == '21':
-        filename = f'opposing_2_1.npy'
+        filename = f'similar_{group_size}_{args.group_set}.npy'
+    elif group_type == 'outlier':
+        filename = f'opposing_2_1_{args.group_set}.npy'
     elif group_type == 'random':
-        filename = f'random_{group_size}.npy'
+        filename = f'random_{group_size}_{args.group_set}.npy'
     return path + filename
     
 def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups, interactions: sp.csr_matrix):
     logging.info('Recommending for groups')
     
-    add_interactions = args.add_interactions
     
     mlflow.set_experiment(f'GR_{args.dataset}')
     mlflow.set_experiment_tags({
@@ -99,115 +98,140 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
         
     with mlflow.start_run(run_name=run_name):
         mlflow.log_params(vars(args))
-        ndcgs = []
-        common_items_ndcgs = []
+        all_ndcgs, all_dcgs, all_idcgs = [], [], []
+        all_ndcg_com, all_dcg_com, all_idcg_com = [], [], []
+        all_prec, all_rec = [], []
+        all_prec_com, all_rec_com = [], []
+        all_hit, all_hit_com = [], []
         total_time = 0
-        rel_scores_per_item = []
-        ranks_per_item = []
+        all_gt_user, all_gt_group = [], []
+        all_candidates = []
         popularities = []
         recommendations_similarities = []
         all_group_recommendations = []
         for group in tqdm(groups, desc='Group Recommending', total=len(groups)):
             group_interactions = interactions[group]
-            interactions_count = group_interactions.sum(axis=1).A1
-            
-            
-            # add interactions
-            if add_interactions > 0:
-                ints = torch.tensor(group_interactions.toarray(), device=device)
-                _, rec_items = elsa.recommend(ints, add_interactions, mask=None)
-                additional_interactions_idx = rec_items[:, :add_interactions]
-                
-                # Add new interactions to group_interactions
-                additional_data = np.ones_like(additional_interactions_idx.flatten())
-                additional_rows = np.repeat(np.arange(group_interactions.shape[0]), add_interactions)
-                additional_cols = additional_interactions_idx.flatten()
-                additional_matrix = sp.csr_matrix(
-                    (additional_data, (additional_rows, additional_cols)),
-                    shape=group_interactions.shape
-                )
-                group_interactions += additional_matrix
-                
-                
-            
-            final_target_ratio = np.mean((interactions_count * args.target_ratio + add_interactions) / (interactions_count + add_interactions))
-            inputs, targets = Utils.split_input_target_interactions_for_groups(group_interactions, final_target_ratio, args.seed)
-            # targets += additional_matrix
+
+            inputs, targets = Utils.split_input_target_interactions_for_groups(group_interactions, args.target_ratio, args.seed)
             inputs, targets = torch.tensor(inputs, device=device, dtype=torch.float32), torch.tensor(targets, device=device, dtype=torch.float32)
             mask = (inputs.sum(axis=0).squeeze() != 0).unsqueeze(0).repeat(inputs.shape[0], 1)
-            
+
             start = time.perf_counter()
-            group_recommendations = group_recommender.recommend_for_group(inputs, None, mask)
+            group_recommendations_raw = group_recommender.recommend_for_group(inputs, args.k, mask)
             finish = time.perf_counter()
-            all_group_recommendations.append(group_recommendations)
-            group_recommendations = group_recommendations[:, :args.k]
             total_time += finish - start
-            group_recommendations = torch.tensor(group_recommendations, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
-            elsa_scores = elsa.decode(elsa.encode(inputs)) - inputs
-            elsa_scores = elsa.normalize_relevance_scores(elsa_scores)
-            elsa_scores = torch.where(mask, -torch.inf, elsa_scores)
-            
-            # # get top 20 common items
-            # common_items_count = 20
+            group_recommendations = torch.tensor(group_recommendations_raw, device=device).unsqueeze(0).repeat(inputs.shape[0], 1)
+
+
             common_items = torch.zeros(interactions.shape[1], device=device)
-            # at first from targets
             common_items += (targets.sum(axis=0).squeeze() == args.group_size).float()
-            # # then from recommendations
-            # need_to_add = int((common_items_count - common_items.sum()).cpu().item())
-            # if need_to_add > 0:
-            #     min_scores = elsa_scores.min(dim=0)[0]
-            #     top_scores = torch.topk(min_scores, need_to_add).indices
-            #     common_items += torch.zeros_like(common_items).scatter_(0, top_scores, 1)
             
+            gt_user = targets.sum().mean().cpu()
+            gt_group = common_items.sum().cpu()
             
-            rank_per_item = Utils.ranks_per_item(group_recommendations[0], elsa_scores.detach().cpu().numpy())
-            
-            
-            ndcg = Utils.evaluate_ndcg_at_k_from_top_indices(group_recommendations, targets, args.k)
-            common_items_ndcg = Utils.evaluate_ndcg_at_k_from_top_indices(group_recommendations[0].unsqueeze(0), common_items.unsqueeze(0), args.k)
+            candidates = (inputs.shape[1] - mask[0].sum()).cpu()
+
+            ndcg, dcg, idcg = Utils.evaluate_ndcg_at_k_from_top_indices(group_recommendations, targets, args.k)
+            ndcg_com, dcg_com, idcg_com = Utils.evaluate_ndcg_at_k_from_top_indices(group_recommendations[0].unsqueeze(0), common_items.unsqueeze(0), args.k)
+            precision = Utils.evaluate_precision_at_k_from_top_indices(group_recommendations, targets, args.k)
+            precision_com = Utils.evaluate_precision_at_k_from_top_indices(group_recommendations[0].unsqueeze(0), common_items.unsqueeze(0), args.k)
+            recall = Utils.evaluate_recall_at_k_from_top_indices(group_recommendations, targets, args.k)
+            recall_com = Utils.evaluate_recall_at_k_from_top_indices(group_recommendations[0].unsqueeze(0), common_items.unsqueeze(0), args.k)
+            hit = Utils.evaluate_hitrate_at_k_from_top_indices(group_recommendations, targets, args.k)
+            hit_com = Utils.evaluate_hitrate_at_k_from_top_indices(group_recommendations[0].unsqueeze(0), common_items.unsqueeze(0), args.k)
             popularity_score = popularity.popularity_score(group_recommendations[0].cpu().numpy())
             recommendations_similarity = Utils.recommendations_similarity(group_recommendations[0], elsa)
             
+            # generate more info for test set
+            if args.group_set == 'test':
+                all_recs = group_recommendations_raw
+                all_group_recommendations.append(all_recs)
             
-            ndcgs.append(ndcg)
-            common_items_ndcgs.append(common_items_ndcg)
+            all_ndcgs.append(ndcg)
+            all_dcgs.append(dcg)
+            all_idcgs.append(idcg)
+            
+            all_ndcg_com.append(ndcg_com)
+            all_dcg_com.append(dcg_com)
+            all_idcg_com.append(idcg_com)
+            
+            all_prec.append(precision)
+            all_rec.append(recall)
+            
+            all_prec_com.append(precision_com)
+            all_rec_com.append(recall_com)
+            
+            all_hit.append(hit)
+            all_hit_com.append(hit_com)
+            
+            all_gt_group.append(gt_group)
+            all_gt_user.append(gt_user)
+            
+            all_candidates.append(candidates)
+            
             popularities.append(popularity_score)
-            ranks_per_item.append(rank_per_item)
             recommendations_similarities.append(recommendations_similarity)
             
-        ndcgs_means = np.mean(ndcgs, axis=1)
-        ndcgs_mins = np.min(ndcgs, axis=1)
-        ndcgs_maxs = np.max(ndcgs, axis=1)
-        ranks_per_item_means = np.mean(ranks_per_item, axis=1)
-        ranks_per_item_mins = np.min(ranks_per_item, axis=1)
-        ranks_per_item_maxs = np.max(ranks_per_item, axis=1)
+        ndcgs_means = np.mean(all_ndcgs, axis=1)        
+        
+        ndcgs_mins = np.min(all_ndcgs, axis=1)
+        dcgs_mins = np.min(all_dcgs, axis=1)
+        idcgs_mins = np.min(all_idcgs, axis=1)
+        recall_mins = np.min(all_rec, axis=1)
+        prec_mins = np.min(all_prec, axis=1)
+        hit_mins = np.min(all_hit, axis=1)
+        
         popularities_means = np.mean(popularities, axis=1)
         
-        temp_path = './recommendations.npy'
-        np.save(temp_path, np.array(all_group_recommendations))
+        logs = {
+            'Group_NDCG': np.array(all_ndcg_com),
+            'User_NDCG_Means': np.array(ndcgs_means),
+            'User_NDCG_Mins': np.array(ndcgs_mins),
+            "Popularity": np.array(popularities_means),
+            "Recommendations": np.array(all_group_recommendations),
+        }
+        temp_path = './logs.pkl'
+        with open(temp_path, 'wb') as f:
+            pickle.dump(logs, f)
         mlflow.log_artifact(temp_path)
         os.remove(temp_path)
-        logging.info('Recommendations successfully saved')
+        logging.info('Logs successfully saved')
         
         mlflow.log_metrics({
-            f'CommonItemsNDCG{args.k}/median': float(np.median(common_items_ndcg)),
-            f'NDCG{args.k}/mean': float(np.median(ndcgs_means)),
+            f'NDCG{args.k}_com': float(np.mean(all_ndcg_com)),
+            f'DCG{args.k}_com': float(np.mean(all_dcg_com)),
+            f'IDCG{args.k}_com': float(np.mean(all_idcg_com)),
+            
+            f'NDCG{args.k}_min': float(np.mean(ndcgs_mins)),
+            f'DCG{args.k}_min': float(np.mean(dcgs_mins)),
+            f'IDCG{args.k}_min': float(np.mean(idcgs_mins)),
+            
+            f'P{args.k}_min': float(np.mean(prec_mins)),
+            f'P{args.k}_com': float(np.mean(all_prec_com)),
+            
+            f'R{args.k}_com': float(np.mean(all_rec_com)),
+            f'R{args.k}_min': float(np.mean(recall_mins)),
+            
+            f'Hit{args.k}_com': float(np.mean(all_hit_com)),
+            f'Hit{args.k}_min': float(np.mean(hit_mins)),
+            
+            f'GT_group': float(np.mean(all_gt_group)),
+            f'GT_user': float(np.mean(all_gt_user)),
+            
+            f'Candidates': float(np.mean(all_candidates)),
+            
+            f'NDCG{args.k}/mean': float(np.mean(ndcgs_means)),
             f'NDCG{args.k}/std': float(np.std(ndcgs_means)),
-            f'NDCG{args.k}/min': float(np.median(ndcgs_mins)),
-            f'NDCG{args.k}/max': float(np.median(ndcgs_maxs)),
-            f'NDCG{args.k}/min:mean': float(np.median(np.divide(ndcgs_mins, ndcgs_means, out=np.zeros_like(ndcgs_mins), where=ndcgs_means!=0))),
-            f'RanksPerItem/mean': float(np.median(ranks_per_item_means)),
-            f'RanksPerItem/min': float(np.median(ranks_per_item_mins)),
-            f'RanksPerItem/min:mean': float(np.median(np.divide(ranks_per_item_mins, ranks_per_item_means, out=np.zeros_like(ranks_per_item_mins), where=ranks_per_item_means!=0))),
-            f'Popularity/mean': float(np.median(popularities_means)),
-            f'RecommendationsSimilarity/mean': float(np.median(recommendations_similarities)),
+            f'NDCG{args.k}/min:mean': float(np.mean(np.divide(ndcgs_mins, ndcgs_means, out=np.zeros_like(ndcgs_mins), where=ndcgs_means!=0))),
+            f'Popularity/mean': float(np.mean(popularities_means)),
+            f'RecommendationsSimilarity/mean': float(np.mean(recommendations_similarities)),
             f'Time/mean': float(total_time / len(groups)),
         })
         
 
 def main(args):
     assert args.group_size in GROUP_SIZES, 'Only group size 3 is supported for now'
-    assert args.group_type in ['sim', 'div', '21'], 'Group type not supported'
+    assert args.group_type in ['sim', 'outlier', 'random'], 'Group type not supported'
     assert args.recommender_strategy in RECOMMENDER_STRATEGIES, 'Recommender strategy not supported'
     if not args.recommender_strategy == 'SAE' or not args.use_base_model_from_sae:
         assert args.base_run_id is not None, 'Base model run ID is required'
@@ -321,9 +345,11 @@ def main(args):
     if args.recommender_strategy == 'SAE':
         combine_features_strategy = CombineFeaturesStrategy.get_combine_features_strategy(CombineFeaturesStrategyType(args.combine_features_strategy), decoder=sae.decoder_w, percentile=args.combine_features_percentile, k=args.combine_features_topk)
         fusion_strategy = FusionStrategy.get_fusion_strategy(FusionStrategyType(args.SAE_fusion_strategy), k = int(args.top_k))
-        group_recommender = SaeGroupRecommender(elsa, sae, fusion_strategy, combine_features_strategy)
+        group_recommender = SaeGroupRecommender(elsa, sae, fusion_strategy, combine_features_strategy, normalize_user_embedding=args.normalize_users_embeddings)
     elif args.recommender_strategy == 'ELSA':
         group_recommender = ElsaGroupRecommender(elsa, FusionStrategy.get_fusion_strategy(FusionStrategyType('average')))
+    elif args.recommender_strategy == 'POPULAR':
+        group_recommender = PopularGroupRecommender(interactions)
     elif args.recommender_strategy == 'ELSA_INT':
         group_recommender = ElsaAllInOneGroupRecommender(elsa)
     else: # other strategies

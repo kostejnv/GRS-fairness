@@ -9,9 +9,7 @@ class Popularity:
         
     def _calculate_popularity(self):
         frequncies = self.crs_interactions.sum(axis=0).A1
-        percentile_80 = np.percentile(frequncies, 80)
-        self.popularity = np.where(frequncies >= percentile_80, frequncies, 0)
-        self.popularity /= self.popularity.max()
+        self.popularity = frequncies /frequncies.max()
         
     def popularity_score(self, ids: np.ndarray) -> np.ndarray:
         return np.vectorize(lambda x: self.popularity[x])(ids)

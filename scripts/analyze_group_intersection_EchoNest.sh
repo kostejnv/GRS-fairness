@@ -15,7 +15,7 @@ sae_run_ids=(
 
 group_types=(
     'sim'
-    'div'
+    'outlier'   
     'random'
 )
 

@@ -6,6 +6,7 @@ from .fusion_strategy import FusionStrategy, FusionStrategyType
 from .elsa_all_in_one_group_recommender import ElsaAllInOneGroupRecommender
 from .elsa_group_recommender import ElsaGroupRecommender
 from .combine_features_strategy import CombineFeaturesStrategy, CombineFeaturesStrategyType
+from .popular_group_recommender import PopularGroupRecommender
 
 __all__ = [
     'BaseGroupRecommender',
@@ -18,4 +19,5 @@ __all__ = [
     'CombineFeaturesStrategy',
     'CombineFeaturesStrategyType',
     'ElsaGroupRecommender',
+    'PopularGroupRecommender',
     ]

@@ -1,0 +1,19 @@
+\begin{table}
+\caption{UPGRADE Table2: Table of recommendation metrics for SAGEA with Avg aggregation function. }
+\label{tab:recommendations}
+\begin{tabular}{ll|cccc}
+\toprule
+Dimensions & TopK & $NDCG_{com}$ & $NDCG_{min}$ & $NDCG_{mean}$ & Popularity \\
+\midrule
+1024 & 32 & 0.631 & 0.551 & 0.695 & 0.505 \\
+1024 & 64 & \underline{0.633} & \underline{0.553} & 0.696 & 0.504 \\
+1024 & 128 & 0.633 & 0.553 & \underline{0.697} & 0.500 \\
+2048 & 32 & 0.630 & 0.550 & 0.695 & 0.506 \\
+2048 & 64 & 0.631 & 0.552 & 0.695 & 0.503 \\
+2048 & 128 & \textbf{0.633} & \textbf{0.553} & \textbf{0.697} & \underline{0.499} \\
+4096 & 32 & 0.629 & 0.550 & 0.695 & 0.507 \\
+4096 & 64 & 0.629 & 0.550 & 0.694 & 0.501 \\
+4096 & 128 & 0.630 & 0.552 & 0.695 & \textbf{0.498} \\
+\bottomrule
+\end{tabular}
+\end{table}

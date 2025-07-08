@@ -29,8 +29,9 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
     parser.add_argument("--sae_run_id", type=str, help="Run ID of the analyzed SAE model")
-    parser.add_argument("--group_type", type=str, help="Type of group to analyze. Options: 'sim', 'div', '21', 'random'")
+    parser.add_argument("--group_type", type=str, help="Type of group to analyze. Options: 'sim', 'outlier', '21', 'random'")
     parser.add_argument("--group_size", type=int, default=3, help="Size of the group to analyze")
+    parser.add_argument("--group_set", type=str, default='valid', help="Group set to analyze. Options: 'valid', 'test', 'train'")
     parser.add_argument("--user_set", type=str, default='train', help="User set from which the groups where sampled (full, test, train)")
     # stable parameters
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
@@ -44,7 +45,7 @@ def parse_arguments():
 
 def main(args):
     assert args.group_size in [3,5], 'Only group size 3 is supported for now'
-    assert args.group_type in ['sim', 'div', '21', 'random'], 'Group type not supported'
+    assert args.group_type in ['sim', 'outlier', 'random'], 'Group type not supported'
     
     # load sae model
     sae_run = mlflow.get_run(args.sae_run_id)
@@ -75,14 +76,12 @@ def main(args):
     
     # Load groups
     if args.group_type == 'sim':
-        filename = f'similar_{args.group_size}.npy'
-    elif args.group_type == 'div':
-        filename = f'divergent_{args.group_size}.npy'
-    elif args.group_type == '21':
-        filename = f'opposing_2_1.npy'
+        filename = f'similar_{args.group_size}_{args.group_set}.npy'
+    elif args.group_type == 'outlier':
+        filename = f'opposing_2_1_{args.group_set}.npy'
     elif args.group_type == 'random':
-        filename = f'random_{args.group_size}.npy'
-            
+        filename = f'random_{args.group_size}_{args.group_set}.npy'
+
     if args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'EchoNest':
