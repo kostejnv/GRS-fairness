@@ -12,16 +12,16 @@ FUSION_STRATEGIES = [
     'wcom',
 ]
 
-def get_sae_run_ids_from_experiment(experiment_id, note=None):
+def get_sae_run_ids_from_experiment(experiment_id, note_to_filter=None):
     experiment = mlflow.get_experiment(experiment_id)
     if experiment is None:
         raise ValueError(f"Experiment '{experiment_id}' not found in MLflow.")
-    runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id], filter_string=f"params.note = '{note}'" if note else "")
+    runs = mlflow.search_runs(experiment_ids=[experiment.experiment_id], filter_string=f"params.note = '{note_to_filter}'" if note_to_filter else "")
     sae_infos = [(row.run_id, row["params.note"], row["params.dataset"]) for _, row in runs.iterrows()]
     return sae_infos
 
 def main():
-    parser = argparse.ArgumentParser(description='Run recommend_for_groups.py for all SAE runs in an MLflow experiment.')
+    parser = argparse.ArgumentParser(description='Run recommend_sagea.py for all SAE runs in an MLflow experiment.')
     parser.add_argument('--experiment_id', type=str, required=True, help='MLflow experiment name or ID')
     parser.add_argument('--note', type=str, required=True, help='Note to add to each run')
     parser.add_argument('--group_type', type=str, default='sim', help='Group type (default: sim)')
@@ -31,21 +31,21 @@ def main():
     parser.add_argument('--normalize_users_embedding', action='store_true',
                         help='Normalize user embedding before fusion (default: False)')
     parser.add_argument('--topk_inference', action='store_true',
-                        help='Use top-k inference for group recommendations (default: False)')
-    parser.add_argument('--true_note', type=str, default='',
-                        help='True note to use for the runs (default: empty string)')
+                        help='Use top-k activation during inference for group recommendations (default: False)')
+    parser.add_argument('--note_to_filter', type=str, default='',
+                        help='Note to filter the experiment runs (default: empty string)')
     args = parser.parse_args()
 
-    sae_infos = get_sae_run_ids_from_experiment(args.experiment_id, note=args.note)
+    sae_infos = get_sae_run_ids_from_experiment(args.experiment_id, note=args.note_to_filter)
     if not sae_infos:
         print(f"No SAE runs found in experiment '{args.experiment_id}'.")
         return
 
     for sae_run_id, _, dataset in sae_infos:
         user_set = 'valid'
-        note = args.true_note if args.true_note else args.note
+        note = args.note if args.note else ""
         cmd = [
-            'python', 'recommend_for_groups.py',
+            'python', 'recommend_sagea.py',
             '--dataset', dataset,
             '--sae_run_id', sae_run_id,
             '--use_base_model_from_sae',
