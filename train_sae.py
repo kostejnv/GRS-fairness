@@ -2,12 +2,10 @@ import argparse
 import logging
 import sys
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
-from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE, BatchTopKSAE
+from datasets import LastFm1kLoader, DataLoader, MovieLensLoader
+from models import ELSA, BasicSAE, TopKSAE, SAE, BatchTopKSAE
 import mlflow
 import numpy as np
-import random
-import os
 import datetime
 from tqdm import tqdm
 from utils import Utils
@@ -27,7 +25,7 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
+    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "MovieLens" are supported')
     parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train the model')
     parser.add_argument('--early_stop', type=int, default=10, help='Number of epochs to wait for improvement before stopping')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size for training')
@@ -273,8 +271,6 @@ def main(args):
     
     # Load dataset
     logging.info(f'Loading {args.dataset}')
-    if args.dataset == 'EchoNest':
-        dataset_loader = EchoNestLoader()
     elif args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'MovieLens':

@@ -3,7 +3,7 @@
 import mlflow
 from copy import deepcopy
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
+from datasets import LastFm1kLoader, DataLoader, MovieLensLoader
 from utils import Utils
 from models import ELSA
 import tqdm
@@ -27,7 +27,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser() # TODO: Add description
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     # dataset
-    parser.add_argument('--dataset', type=str, default='MovieLens', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
+    parser.add_argument('--dataset', type=str, default='MovieLens', help='Dataset to use. For now, only "LastFM1k" and "MovieLens" are supported')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
     parser.add_argument('--td_quantile', type=float, default=0.75, help='Threshold quantile for similarity')
@@ -38,9 +38,9 @@ def parse_arguments():
     parser.add_argument('--opposing_groups', type=list, default=[[2,1]], help='Number of opposing groups')
     parser.add_argument('--user_sample', type=int, default=20_000, help='Number of users to sample')
     parser.add_argument('--group_count', type=int, default=100_000, help='Number of groups')
-    parser.add_argument("--run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Run ID of the base model")
+    parser.add_argument("--run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Mlflow Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
-    parser.add_argument("--user_set", type=str, default='test', help="User set to generate groups for (full, test)")
+    parser.add_argument("--user_set", type=str, default='test', help="User set to generate groups for (full, test, valid, train)")
     
     return parser.parse_args()
 
@@ -68,9 +68,7 @@ def main(args):
     model.eval()
     logging.info('Model loaded')
     
-    if args.dataset == 'EchoNest':
-        dataset_loader = EchoNestLoader()
-    elif args.dataset == 'LastFM1k':
+    if args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'MovieLens':
         dataset_loader = MovieLensLoader()
@@ -244,16 +242,14 @@ def main(args):
         similar_groups[group_size] = user_ids[group_idxs]
     logging.info('Similar groups generated')
     
-    
-    
-    # divergent_groups = {}
-    # for group_size in args.divergent_groups:
-    #     group_idxs = []
-    #     for i in range(args.group_count):
-    #         print(f"Generating divergent group {i+1}/{args.group_count}")
-    #         group_idxs.append(divergent_group(group_size))
-    #     divergent_groups[group_size] = user_ids[group_idxs]
-    # logging.info('Divergent groups generated')
+    divergent_groups = {}
+    for group_size in args.divergent_groups:
+        group_idxs = []
+        for i in range(args.group_count):
+            print(f"Generating divergent group {i+1}/{args.group_count}")
+            group_idxs.append(divergent_group(group_size))
+        divergent_groups[group_size] = user_ids[group_idxs]
+    logging.info('Divergent groups generated')
     
     opposing_groups = {}
     for group_size in args.opposing_groups:

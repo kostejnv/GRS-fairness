@@ -3,21 +3,19 @@ import logging
 import pickle
 import sys
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
-from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE
-from popularity import Popularity
+from datasets import LastFm1kLoader, MovieLensLoader
+from models import ELSA, BasicSAE, TopKSAE
+from utils.popularity import Popularity
 import mlflow
 import numpy as np
 import time
-import random
 import os
 import datetime
 from tqdm import tqdm
 from utils import Utils
-from copy import deepcopy
 from group_recommenders import BaseGroupRecommender
 import scipy.sparse as sp
-from group_recommenders import AggregationStrategy, GRSGroupRecommender, FusionStrategy, FusionStrategyType, SaeGroupRecommender, ElsaAllInOneGroupRecommender, CombineFeaturesStrategy, CombineFeaturesStrategyType, ElsaGroupRecommender, PopularGroupRecommender
+from group_recommenders import ResultsAggregationStrategy, GRSGroupRecommender, FusionStrategy, FusionStrategyType, SaeGroupRecommender, ElsaInteractionsGroupRecommender, ElsaGroupRecommender, PopularGroupRecommender
 
 TIMESTAMP = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
 
@@ -33,18 +31,15 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='MovieLens', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
+    parser.add_argument('--dataset', type=str, default='MovieLens', help='Dataset to use. For now, only "LastFM1k" and "MovieLens" are supported')
     # model parameters
     parser.add_argument("--sae_run_id", type=str, default='e6f874617a574800b8d5a11254711223', help="Run ID of the analyzed SAE model")
     parser.add_argument("--use_base_model_from_sae", action='store_true', help="Use base model from SAE run")
     parser.add_argument("--base_run_id", type=str, default='null', help="Run ID of the base model if not using SAE base model")
     
     # Recommender parameters
-    parser.add_argument("--recommender_strategy", type=str, default='SAE', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...") # TODO: Add more strategies
-    parser.add_argument("--SAE_fusion_strategy", type=str, default='common_features', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.") # TODO: Add more strategies
-    parser.add_argument("--combine_features_strategy", type=str, default='none', help="Strategy to combinee features.")
-    parser.add_argument("--combine_features_percentile", type=float, default=0.50, help="Aplied only if combine_features_strategy is not 'percentile'. Percentile to use for combine features.")
-    parser.add_argument("--combine_features_topk", type=int, default=100, help="Aplied only if combine_features_strategy is 'topk'. combinee top_k features for each feature.")
+    parser.add_argument("--recommender_strategy", type=str, default='SAE', help="Strategy to use for recommending. Options: 'SAE', 'ADD', ...")
+    parser.add_argument("--SAE_fusion_strategy", type=str, default='common_features', help="Only for SAE strategy. Strategy to fuse user sparse embeddings.")
     parser.add_argument("--normalize_users_embeddings", action='store_true', help="Whether to normalize user embeddings before recommending to make for them similar weight.")
     
     # group parameters
@@ -66,7 +61,6 @@ def parse_arguments():
 GROUP_TYPES = ['sim', 'outlier', 'random']
 RECOMMENDER_STRATEGIES = ['SAE', 'ADD', 'LMS', 'GFAR', 'EPFuzzDA', 'MPL', 'ELSA', 'ELSA_INT', 'POPULAR']
 SAE_FUSION_STRATEGIES = [strategy.value for strategy in FusionStrategyType]
-COMBINE_FEATURES_STRATEGIES = [strategy.value for strategy in CombineFeaturesStrategyType]
 GROUP_SIZES = [3,5]
 
 def get_groups_path(dataset, group_type, group_size, user_set):
@@ -220,8 +214,7 @@ def recommend(args, group_recommender: BaseGroupRecommender, elsa: ELSA, groups,
             
             f'Candidates': float(np.mean(all_candidates)),
             
-            f'NDCG{args.k}/mean': float(np.mean(ndcgs_means)),
-            f'NDCG{args.k}/std': float(np.std(ndcgs_means)),
+            f'NDCG{args.k}_avg': float(np.mean(ndcgs_means)),
             f'NDCG{args.k}/min:mean': float(np.mean(np.divide(ndcgs_mins, ndcgs_means, out=np.zeros_like(ndcgs_mins), where=ndcgs_means!=0))),
             f'Popularity/mean': float(np.mean(popularities_means)),
             f'RecommendationsSimilarity/mean': float(np.mean(recommendations_similarities)),
@@ -239,8 +232,6 @@ def main(args):
     # Load dataset
     if args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
-    elif args.dataset == 'EchoNest':
-        dataset_loader = EchoNestLoader()
     elif args.dataset == 'MovieLens':
         dataset_loader = MovieLensLoader()
     dataset_loader.prepare(args)
@@ -258,7 +249,6 @@ def main(args):
     # everythin what is needed for SAE
     if args.recommender_strategy == 'SAE':
         assert args.SAE_fusion_strategy in SAE_FUSION_STRATEGIES, f'Fusion strategy {args.SAE_fusion_strategy} not supported'
-        assert args.combine_features_strategy in COMBINE_FEATURES_STRATEGIES, f'Combine features strategy {args.combine_features_strategy} not supported'
         assert args.sae_run_id is not None, 'SAE run ID is required'
     
     
@@ -343,18 +333,17 @@ def main(args):
     logging.info(f'ELSA model loaded from {base_artifact_path}')
 
     if args.recommender_strategy == 'SAE':
-        combine_features_strategy = CombineFeaturesStrategy.get_combine_features_strategy(CombineFeaturesStrategyType(args.combine_features_strategy), decoder=sae.decoder_w, percentile=args.combine_features_percentile, k=args.combine_features_topk)
         fusion_strategy = FusionStrategy.get_fusion_strategy(FusionStrategyType(args.SAE_fusion_strategy), k = int(args.top_k))
-        group_recommender = SaeGroupRecommender(elsa, sae, fusion_strategy, combine_features_strategy, normalize_user_embedding=args.normalize_users_embeddings)
+        group_recommender = SaeGroupRecommender(elsa, sae, fusion_strategy, normalize_user_embedding=args.normalize_users_embeddings)
     elif args.recommender_strategy == 'ELSA':
         group_recommender = ElsaGroupRecommender(elsa, FusionStrategy.get_fusion_strategy(FusionStrategyType('average')))
     elif args.recommender_strategy == 'POPULAR':
         group_recommender = PopularGroupRecommender(interactions)
     elif args.recommender_strategy == 'ELSA_INT':
-        group_recommender = ElsaAllInOneGroupRecommender(elsa)
+        group_recommender = ElsaInteractionsGroupRecommender(elsa)
     else: # other strategies
         args.SAE_fusion_strategy = None
-        aggregator = AggregationStrategy.getAggregator(args.recommender_strategy)
+        aggregator = ResultsAggregationStrategy.getAggregator(args.recommender_strategy)
         group_recommender = GRSGroupRecommender(elsa, aggregator)
     
     
