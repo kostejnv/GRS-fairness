@@ -38,7 +38,9 @@ def parse_arguments():
     parser.add_argument('--opposing_groups', type=list, default=[[2,1]], help='Number of opposing groups')
     parser.add_argument('--user_sample', type=int, default=20_000, help='Number of users to sample')
     parser.add_argument('--group_count', type=int, default=100_000, help='Number of groups')
-    parser.add_argument("--run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Mlflow Run ID of the base model")
+    parser.add_argument('--final_group_count', type=int, default=1_000, help='Final number of group after all filtering')
+    parser.add_argument('--common_interactions', type=int, default=5, help='Common interaction count that the final groups should have')
+    parser.add_argument("--run_id", type=str, default='0c2c7c4b7cd5427db21b9c7022ffbc18', help="Mlflow Run ID of the base model")
     parser.add_argument("--out_dir", type=str, default='data/synthetic_groups', help="Output directory")
     parser.add_argument("--user_set", type=str, default='test', help="User set to generate groups for (full, test, valid, train)")
     
@@ -82,22 +84,19 @@ def main(args):
     if args.user_set == 'full':
         user_sample = min(args.user_sample, dataset_loader.csr_interactions.shape[0])
         user_idx = np.random.permutation(dataset_loader.csr_interactions.shape[0])[:user_sample]
-        csr_interactions = dataset_loader.csr_interactions[user_idx]
     elif args.user_set == 'train':
         user_sample = min(args.user_sample, len(dataset_loader.train_idx))
         user_idx = np.random.choice(dataset_loader.train_idx, user_sample, replace=False)
-        csr_interactions = dataset_loader.csr_interactions[user_idx]
     elif args.user_set == 'valid':
         user_sample = min(args.user_sample, len(dataset_loader.valid_idx))
         user_idx = np.random.choice(dataset_loader.valid_idx, user_sample, replace=False)
-        csr_interactions = dataset_loader.csr_interactions[user_idx]
     elif args.user_set == 'test':
         user_sample = min(args.user_sample, len(dataset_loader.test_idx))
         user_idx = np.random.choice(dataset_loader.test_idx, user_sample, replace=False)
-        csr_interactions = dataset_loader.csr_interactions[user_idx]
     else:
         raise ValueError(f'User set {args.user_set} not supported. Check typo.')
     
+    csr_interactions = dataset_loader.csr_interactions[user_idx]
     user_ids = dataset_loader.users[user_idx]
     
     logging.info(f'Interactions shape: {csr_interactions.shape}')
@@ -268,6 +267,30 @@ def main(args):
             group_idxs.append(random_group(group_size))
         random_groups[group_size] = user_ids[group_idxs]
     logging.info('Random groups generated')
+        
+    def filter_groups(original_groups, group_size):
+        # filter groups with same users
+        original_groups = [list(group) for group in original_groups if len(set(group)) == len(group)]
+        # filter same groups
+        original_groups = list(set([tuple(group) for group in original_groups]))
+        original_groups = np.array(original_groups)
+        groups = np.vectorize(lambda x: np.argwhere(dataset_loader.users == x))(original_groups)
+        print(f"Number of groups: {len(groups)}")
+            
+        # get common interactions
+        common_items = []
+        for group in groups:
+            group_interactions = dataset_loader.csr_interactions[group]
+            _, targets = Utils.split_input_target_interactions_for_groups(group_interactions, 0.5)
+            ci = (targets.sum(axis=0) == group_size).astype(int).sum()
+            common_items.append(ci)
+            
+        positive_groups = (np.array(common_items) > args.common_interactions)
+        np.random.seed(args.seed)
+        selected_groups = original_groups[positive_groups]
+        print(f"Groups fulfiling all conditions: {len(selected_groups)}")
+        original_groups = np.random.permutation(selected_groups)[:args.final_group_count]
+        return original_groups
     
     # save groups as numpy arrays
 
@@ -275,16 +298,32 @@ def main(args):
     os.makedirs(out_path, exist_ok=True)
 
     for group_size, groups in similar_groups.items():
-        np.save(f'{out_path}/similar_{group_size}.npy', np.array(groups))
+        if groups.size == 0:
+            continue
+        print(f"Filtering similar groups of size {group_size}")
+        groups = filter_groups(groups, group_size)
+        np.save(f'{out_path}/similar_{group_size}_{args.user_set}.npy', np.array(groups))
         
-    # for group_size, groups in divergent_groups.items():
-    #     np.save(f'{out_path}/divergent_{group_size}.npy', np.array(groups))
+    for group_size, groups in divergent_groups.items():
+        if groups.size == 0:
+            continue
+        print(f"Filtering divergent groups of size {group_size}")
+        groups = filter_groups(groups, group_size)
+        np.save(f'{out_path}/divergent_{group_size}_{args.user_set}.npy', np.array(groups))
         
     for group_size, groups in opposing_groups.items():
-        np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}.npy', np.array(groups))
+        if groups.size == 0:
+            continue
+        print(f"Filtering opposing groups of size {group_size}")
+        groups = filter_groups(groups, sum(group_size))
+        np.save(f'{out_path}/opposing_{group_size[0]}_{group_size[1]}_{args.user_set}.npy', np.array(groups))
 
     for group_size, groups in random_groups.items():
-        np.save(f'{out_path}/random_{group_size}.npy', np.array(groups))
+        if groups.size == 0:
+            continue
+        print(f"Filtering random groups of size {group_size}")
+        groups = filter_groups(groups, group_size)
+        np.save(f'{out_path}/random_{group_size}_{args.user_set}.npy', np.array(groups))
         
     logging.info('Groups saved')
     
