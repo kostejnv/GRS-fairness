@@ -1,8 +1,16 @@
 # SAGEA: Sparse Autoencoder-based Group Embeddings Aggregation
 
-**SAGEA** is a method for aggregating group embeddings using sparse autoencoders. This repository provides the official implementation used in the paper _"SAGEA: Sparse Autoencoder-based Group Embeddings Aggregation"_. It serves as a reference for reproducing the results and benchmarking against other models.
+**SAGEA** is a method for aggregating group embeddings using sparse autoencoders. This repository provides the official implementation used in the LBR paper _"SAGEA: Sparse Autoencoder-based Group Embeddings Aggregation"_ and the diploma thesis. _"Multiobjective models for group recommender systems"_. It serves as a reference for reproducing the results and benchmarking against other models.
 
 ---
+
+## Branches
+
+The code for both the paper and the diploma thesis is similar, but the branches are separated for clarity:
+
+- **master**: Contains all materials related to the paper and the diploma thesis.
+- **paper**: Contains only the code and analysis (results directory) related to the paper.
+- **thesis**: Contains only the code and notebooks (notebooks directory) related to the diploma thesis.
 
 ## Requirements
 
@@ -11,15 +19,6 @@ This project requires **Python 3.10** or higher. To install the necessary depend
 ```bash
 pip install -r requirements.txt
 ```
-
----
-
-## Results
-
-The results of the experiments from the paper are available in the `results/` directory. This includes:
-
-- CSV files containing the raw outputs of the experiments
-- A Jupyter notebook (`results.ipynb`) for generating the figures and tables presented in the paper
 
 ---
 
