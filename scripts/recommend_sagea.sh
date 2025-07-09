@@ -22,7 +22,7 @@ for group_type in "${group_types[@]}"
 do
     for strategy in "${fusion_strategies[@]}"
     do
-        python group_recommendation_from_experiment.py --note "$note_item" --experiment_id "$experiment" --group_type "$group_type" --fusion_strategy "$strategy" --topk_inference --true_note "$true_note" # variants when the TopK acitvation is on during inference
-        python group_recommendation_from_experiment.py --note_to_filter "$note_item" --experiment_id "$experiment" --group_type "$group_type" --fusion_strategy "$strategy" --note  "$note" # variants when the TopK acitvation is on during inference
+        python recommend_all_runs.py --note "$note_item" --experiment_id "$experiment" --group_type "$group_type" --fusion_strategy "$strategy" --topk_inference --true_note "$true_note" # variants when the TopK acitvation is on during inference
+        python recommend_all_runs.py --note_to_filter "$note_item" --experiment_id "$experiment" --group_type "$group_type" --fusion_strategy "$strategy" --note  "$note" # variants when the TopK acitvation is on during inference
     done
 done
