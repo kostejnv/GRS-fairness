@@ -1,5 +1,5 @@
 from .base_group_recommender import BaseGroupRecommender
-from .results_group_aggregators import ResultsAggregationStrategy
+from .group_aggregators import AggregationStrategy
 from models import ELSA
 import torch
 import numpy as np
@@ -7,7 +7,7 @@ import pandas as pd
 from typing import Optional
 
 class GRSGroupRecommender(BaseGroupRecommender):
-    def __init__(self, elsa: ELSA, agregator: ResultsAggregationStrategy):
+    def __init__(self, elsa: ELSA, agregator: AggregationStrategy):
         self.elsa = elsa
         self.agregator = agregator
         

@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 import torch
-from datasets import LastFm1kLoader, DataLoader, MovieLensLoader
+from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
 from models import ELSA
 import mlflow
 import numpy as np
@@ -26,7 +26,7 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "MovieLens" are supported')
+    parser.add_argument('--dataset', type=str, help='Dataset to use. For now, only "LastFM1k" and "EchoNest" are supported')
     parser.add_argument('--epochs', type=int, help='Number of epochs to train the model')
     parser.add_argument('--batch_size', type=int, help='Batch size for training')
     parser.add_argument('--factors', type=int, help='Number of factors for the model')
@@ -122,7 +122,9 @@ def main(args):
     
     # Load dataset
     logging.info(f'Loading {args.dataset}')
-    if args.dataset == 'LastFM1k':
+    if args.dataset == 'EchoNest':
+        dataset_loader = EchoNestLoader()
+    elif args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'MovieLens':
         dataset_loader = MovieLensLoader()
