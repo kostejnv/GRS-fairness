@@ -1,20 +1,21 @@
 from .base_group_recommender import BaseGroupRecommender
-from .results_group_aggregators import ResultsAggregationStrategy
+from .group_aggregators import AggregationStrategy
 from .grs_group_recommender import GRSGroupRecommender
 from .sae_group_recommender import SaeGroupRecommender
 from .fusion_strategy import FusionStrategy, FusionStrategyType
-from .elsa_interactions_recommender import ElsaInteractionsGroupRecommender
+from .elsa_all_in_one_group_recommender import ElsaAllInOneGroupRecommender
 from .elsa_group_recommender import ElsaGroupRecommender
-from .popular_group_recommender import PopularGroupRecommender
+from .combine_features_strategy import CombineFeaturesStrategy, CombineFeaturesStrategyType
 
 __all__ = [
     'BaseGroupRecommender',
-    'ResultsAggregationStrategy',
+    'AggregationStrategy',
     'GRSGroupRecommender',
     'FusionStrategy',
     'FusionStrategyType',
     'SaeGroupRecommender',
-    'ElsaInteractionsGroupRecommender',
+    'ElsaAllInOneGroupRecommender',
+    'CombineFeaturesStrategy',
+    'CombineFeaturesStrategyType',
     'ElsaGroupRecommender',
-    'PopularGroupRecommender',
     ]
