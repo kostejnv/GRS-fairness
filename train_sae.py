@@ -2,12 +2,10 @@ import argparse
 import logging
 import sys
 import torch
-from datasets import EchoNestLoader, LastFm1kLoader, DataLoader, MovieLensLoader
-from models import ELSA, ELSAWithSAE, BasicSAE, TopKSAE, SAE, BatchTopKSAE
+from datasets import LastFm1kLoader, DataLoader, MovieLensLoader
+from models import ELSA, BasicSAE, TopKSAE, SAE, BatchTopKSAE
 import mlflow
 import numpy as np
-import random
-import os
 import datetime
 from tqdm import tqdm
 from utils import Utils
@@ -27,32 +25,34 @@ logging.info(f'Device: {device}')
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "EchoNest" and "MovieLens" are supported')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train the model')
-    parser.add_argument('--early_stop', type=int, default=10, help='Number of epochs to wait for improvement before stopping')
+    parser.add_argument('--dataset', type=str, default='LastFM1k', help='Dataset to use. For now, only "LastFM1k" and "MovieLens" are supported')
+    parser.add_argument('--epochs', type=int, default=4_000, help='Number of epochs to train the model')
+    parser.add_argument('--early_stop', type=int, default=250, help='Number of epochs to wait for improvement before stopping')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch size for training')
     parser.add_argument('--embedding_dim', type=int, default=2048, help='Number of factors for the model')
     parser.add_argument('--top_k', type=int, default=128, help='Top k parameter for TopKSAE')
     parser.add_argument("--base_run_id", type=str, default='4a43996d7eec489183ad0d6b0c00d935', help="Run ID of the base model")
     parser.add_argument("--sample_users", action='store_true', default=False, help="Choose randomly 0.5 - 1.0 of the users interactions")
+    parser.add_argument('--model', type=str, default='TopKSAE', help='Model to use (BasicSAE, TopKSAE, BatchTopKSAE)')
+    parser.add_argument('--note', type=str, default='', help='Note for the experiment')
+    parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
+    parser.add_argument("--normalize", action='store_true', help="Normalize the sparse embedding (BasicSAE, TopKSAE)")
     # stable parameters
-    parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate for training')
     parser.add_argument('--seed', type=int, default=42, help='Random seed for reproducibility')
     parser.add_argument('--val_ratio', type=float, default=0.1, help='Validation ratio')
     parser.add_argument('--test_ratio', type=float, default=0.1, help='Test ratio')
-    parser.add_argument('--beta1', type=float, default=0.9, help='Beta1 for Adam optimizer')
-    parser.add_argument('--beta2', type=float, default=0.99, help='Beta2 for Adam optimizer')
-    parser.add_argument('--model', type=str, default='BatchTopKSAE', help='Model to use (BasicSAE, TopKSAE, BatchTopKSAE)')
+    # training parameters
     parser.add_argument("--reconstruction_loss", type=str, default="Cosine", help="Reconstruction loss (L2 or Cosine)")
     parser.add_argument("--auxiliary_coef", type=float, default=1/32, help="Auxiliary loss coefficient (BasicSAE, TopKSAE)")
     parser.add_argument("--contrastive_coef", type=float, default=0.3, help="Contrastive loss coefficient (BasicSAE, TopKSAE)")
-    parser.add_argument("--n_batches_to_dead", type=int, default=5, help="Number of batches to wait before optimizing the dead neurons (BasicSAE, TopKSAE)")
-    parser.add_argument("--normalize", action='store_true', help="Normalize the sparse embedding (BasicSAE, TopKSAE)")
-    parser.add_argument("--topk_aux", type=int, default=512, help="Top k for auxiliary loss (BasicSAE, TopKSAE)")
+    parser.add_argument('--lr', type=float, default=1e-5, help='Learning rate for training')
+    parser.add_argument('--beta1', type=float, default=0.9, help='Beta1 for Adam optimizer')
+    parser.add_argument('--beta2', type=float, default=0.99, help='Beta2 for Adam optimizer')
     parser.add_argument("--l1_coef", type=float, default=3e-4, help="L1 loss coefficient (BasicSAE, TopKSAE)")
-    parser.add_argument('--target_ratio', type=float, default=0.2, help='Ratio of target interactions')
     parser.add_argument('--evaluate_every', type=int, default=10, help='Evaluate every n epochs')
-    parser.add_argument('--note', type=str, default='', help='Note for the experiment')
+    # auxiliary parameters
+    parser.add_argument("--n_batches_to_dead", type=int, default=5, help="Number of batches to wait before optimizing the dead neurons (BasicSAE, TopKSAE)")
+    parser.add_argument("--topk_aux", type=int, default=512, help="Top k for auxiliary loss (BasicSAE, TopKSAE)")
     
     return parser.parse_args()
 
@@ -273,9 +273,7 @@ def main(args):
     
     # Load dataset
     logging.info(f'Loading {args.dataset}')
-    if args.dataset == 'EchoNest':
-        dataset_loader = EchoNestLoader()
-    elif args.dataset == 'LastFM1k':
+    if args.dataset == 'LastFM1k':
         dataset_loader = LastFm1kLoader()
     elif args.dataset == 'MovieLens':
         dataset_loader = MovieLensLoader()
