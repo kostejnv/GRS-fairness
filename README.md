@@ -61,3 +61,9 @@ To reproduce the results or evaluate the SAGEA method, follow the steps below us
 This repository is tightly integrated with the **MLflow** framework for experiment tracking. Before running experiments, we recommend reviewing the MLflow documentation: [https://mlflow.org/classical-ml](https://mlflow.org/classical-ml)
 
 ---
+
+## Acknowledgements and Attribution
+
+This repository builds upon the prior work of Mgr. Martin Spišák, with his permission. As such, certain parts of the codebase may resemble his original implementation.
+
+Additionally, implementations of Group Recommender System (Group RS) approaches used for comparison are based on the code provided by the authors of the paper [*Effects of Quantitative Explanations on Fairness Perception in Group Recommender Systems*](https://dl.acm.org/doi/full/10.1145/3699682.3728335). Their code was used with permission as well.
