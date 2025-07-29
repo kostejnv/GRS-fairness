@@ -214,38 +214,6 @@ def train(args, model:SAE, base_model:ELSA, optimizer, train_csr, valid_csr, tes
         mlflow.log_artifact('models/sae.py')
         # os.remove(temp_path)
         logging.info('Model successfully saved')
-        
-        cfg = {
-            'reconstruction_loss': args.reconstruction_loss,
-            "topk_aux": args.topk_aux,
-            "n_batches_to_dead": args.n_batches_to_dead,
-            "l1_coef": args.l1_coef,
-            "k": args.top_k,
-            "device": device,
-            "normalize": args.normalize,
-            "auxiliary_coef": args.auxiliary_coef,
-            "contrastive_coef": args.contrastive_coef,
-            "reconstruction_coef": args.reconstruction_coef,
-        }
-        
-        if args.model == 'BasicSAE':
-            model = BasicSAE(args.base_factors, args.embedding_dim, cfg).to(device)
-        elif args.model == 'TopKSAE':
-            model = TopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
-        elif args.model == 'BatchTopKSAE':
-            model = BatchTopKSAE(args.base_factors, args.embedding_dim, cfg).to(device)
-        else:
-            raise ValueError(f'Model {args.model} not supported. Check typos.')
-        optimizer = torch.optim.Adam(model.parameters())
-        Utils.load_checkpoint(model, optimizer, temp_path, device)
-        print(model.threshold)
-        
-        test_metrics = Utils.evaluate_sparse_encoder(base_model, model, test_csr, args.target_ratio, batch_size, device, seed=args.seed)
-        for key, val in test_metrics.items():
-            mlflow.log_metric(f'{key}/test', val, step=epoch)
-        logging.info(f'Test metrics - Cosine: {test_metrics["CosineSim"]:.4f} - NDCG20 Degradation: {test_metrics["NDCG20_Degradation"]:.4f}')
-        print(test_metrics)
-        print(model.encoder_b)
                 
 def main(args):
     Utils.set_seed(args.seed)

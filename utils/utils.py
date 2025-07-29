@@ -166,7 +166,7 @@ class Utils:
         ndcg = []
         for input_batch, target_batch in zip(inputs, targets):
             _, topk_indices = model.recommend(input_batch, k, mask_interactions=True)
-            ndcg.append(Utils.ndcg_at_k(torch.tensor(topk_indices).to(target_batch.device), target_batch, k))
+            ndcg.append(Utils.ndcg_at_k(torch.tensor(topk_indices).to(target_batch.device), target_batch, k)[0])
         return torch.cat(ndcg).detach().cpu().numpy()
     
     @staticmethod
@@ -222,8 +222,8 @@ class Utils:
         recalls = np.mean(np.concatenate([Utils()._recall_at_k_batch(recs, targs, 20).cpu().numpy() for recs, targs in zip(elsa_rec_dataloader, targets)]))
         recalls_with_sae = np.mean(np.concatenate([Utils()._recall_at_k_batch(recs, targs, 20).cpu().numpy() for recs, targs in zip(sae_rec_dataloader, targets)]))
         recall_degradations = recalls_with_sae - recalls
-        ndcgs = np.mean(np.concatenate([Utils().ndcg_at_k(recs, targs, 20).cpu().numpy() for recs, targs in zip(elsa_rec_dataloader, targets)]))
-        ndcgs_with_sae = np.mean(np.concatenate([Utils().ndcg_at_k(recs, targs, 20).cpu().numpy() for recs, targs in zip(sae_rec_dataloader, targets)]))
+        ndcgs = np.mean(np.concatenate([Utils().ndcg_at_k(recs, targs, 20)[0].cpu().numpy() for recs, targs in zip(elsa_rec_dataloader, targets)]))
+        ndcgs_with_sae = np.mean(np.concatenate([Utils().ndcg_at_k(recs, targs, 20)[0].cpu().numpy() for recs, targs in zip(sae_rec_dataloader, targets)]))
         ndcg_degradations = ndcgs_with_sae - ndcgs
 
         
